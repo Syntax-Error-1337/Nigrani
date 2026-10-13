@@ -25,7 +25,7 @@ use self::routes_forensics::{
     create_incident, enroll_embedding, list_incidents, search_embeddings, site_heatmap,
 };
 use self::routes_gate::{download_snapshot, gate_log, record_event, share_snapshot, upload_snapshot};
-use self::routes_kyc::{decide_kyc, list_kyc, press_card, submit_kyc, verify_press_card};
+use self::routes_kyc::{decide_kyc, list_kyc, press_card, press_card_png, submit_kyc, verify_press_card};
 use self::routes_sites::{create_gate, create_site, list_gates, list_sites};
 use self::state::AppState;
 use crate::core::AppResult;
@@ -66,6 +66,7 @@ pub fn router(state: AppState) -> Router {
         .route("/kyc/applications", get(list_kyc))
         .route("/kyc/applications/:id/decide", post(decide_kyc))
         .route("/kyc/applications/:id/press-card", get(press_card))
+        .route("/kyc/applications/:id/press-card.png", get(press_card_png))
         .route("/kyc/verify", post(verify_press_card))
         .route("/sites/:site_id/gates/:gate_id/events", post(record_event))
         .route("/sites/:site_id/gates/:gate_id/log", get(gate_log))

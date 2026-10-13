@@ -26,6 +26,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace", "request-id"] }
 dotenvy = "0.15"
+qrcode = "0.14"
+image = { version = "0.25", default-features = false, features = ["png"] }
 futures-util = { version = "0.3", features = ["sink"] }
 aws-config = "1"
 aws-sdk-s3 = "1"
@@ -35,4 +37,5 @@ moka = { version = "0.12", features = ["future"] }
 tower = { version = "0.4", features = ["util"] }
 reqwest = { version = "0.12", features = ["json"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+rxing = "0.9"
 futures-util = { version = "0.3" }

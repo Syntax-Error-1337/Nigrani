@@ -1190,3 +1190,162 @@ async fn retention_purge_and_export() {
     assert_eq!(export["site_id"], site_id);
     assert!(export["gates"].is_array() && export["entry_logs"].is_array() && export["incidents"].is_array());
 }
+
+#[tokio::test]
+async fn press_card_png_decodes_to_signed_payload() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let gate = srv.login("gate").await;
+
+    // Approved application fixture.
+    let app: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": format!("QR {}", uuid::Uuid::new_v4()),
+            "document_type": "press_id",
+            "document_number": format!("Q-{}", uuid::Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let app_id = app["id"].as_str().unwrap().to_owned();
+    srv.client
+        .post(format!("{}/kyc/applications/{app_id}/decide", srv.base))
+        .bearer_auth(&verifier)
+        .json(&json!({ "decision": "approved" }))
+        .send()
+        .await
+        .unwrap();
+
+    // JSON + PNG endpoints agree; PNG is a real PNG.
+    let card: Value = srv
+        .client
+        .get(format!("{}/kyc/applications/{app_id}/press-card", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let res = srv
+        .client
+        .get(format!("{}/kyc/applications/{app_id}/press-card.png", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.headers().get("content-type").unwrap(), "image/png");
+    let bytes = res.bytes().await.unwrap();
+    assert!(bytes.starts_with(b"\x89PNG"), "PNG magic");
+    assert!(bytes.len() > 1_000, "non-trivial image");
+
+    // Independent decode (rxing) recovers the exact signed payload.
+    use rxing::Reader;
+    let img = image::load_from_memory(&bytes).unwrap().to_luma8();
+    let (w, h) = (img.width(), img.height());
+    let source = rxing::Luma8LuminanceSource::new(img.into_raw(), w, h).expect("luma source");
+    let mut bitmap =
+        rxing::BinaryBitmap::new(rxing::common::HybridBinarizer::new(source));
+    let decoded = rxing::qrcode::QRCodeReader::new()
+        .decode(&mut bitmap)
+        .expect("qr decodes");
+    let scanned: Value = serde_json::from_str(decoded.getText()).expect("payload JSON");
+    // Same card, independently issued: identity fields agree; timestamps
+    // differ because each endpoint signs at request time.
+    for field in ["application_id", "full_name", "organization"] {
+        assert_eq!(scanned[field], card[field], "field {field} agrees");
+    }
+
+    // The scanned payload verifies at the gate.
+    for payload in [&scanned, &card] {
+        let verdict: Value = srv
+            .client
+            .post(format!("{}/kyc/verify", srv.base))
+            .bearer_auth(&gate)
+            .json(payload)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(verdict["valid"], true);
+    }
+}
+
+#[tokio::test]
+async fn foreign_key_rows_redact_not_fail() {
+    // A row encrypted under a different key degrades to placeholders;
+    // the list stays 200 so one bad row never blinds the desk.
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let doc = format!("FOREIGN-{}", uuid::Uuid::new_v4());
+    srv.client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": "Foreign Key",
+            "document_type": "pan",
+            "document_number": doc,
+        }))
+        .send()
+        .await
+        .unwrap();
+    // Rewrite that row's envelope under a foreign key directly in SQL.
+    let state = test_state().await;
+    let foreign =
+        nigrani::infrastructure::crypto::TemplateCrypto::from_base64(
+            "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+        )
+        .unwrap();
+    let row_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM kyc_applications WHERE document_number LIKE 'v1:%' AND full_name = 'Foreign Key' ORDER BY submitted_at DESC LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    // Re-encrypt the KNOWN plaintext under the foreign key (simulates a
+    // row written by another deployment sharing the table).
+    let foreign_envelope = foreign.encrypt(&doc).unwrap();
+    sqlx::query("UPDATE kyc_applications SET document_number = $1 WHERE id = $2")
+        .bind(&foreign_envelope)
+        .bind(row_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    // The pending queue holds flood residue; page until the row appears.
+    let mut hit = None;
+    for offset in [0, 200, 400, 600] {
+        let list: Value = srv
+            .client
+            .get(format!(
+                "{}/kyc/applications?status=pending&limit=200&offset={offset}",
+                srv.base
+            ))
+            .bearer_auth(&verifier)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let page = list.as_array().unwrap().clone();
+        if page.is_empty() {
+            break;
+        }
+        if let Some(e) = page.iter().find(|e| e["id"] == row_id.to_string()) {
+            hit = Some(e.clone());
+            break;
+        }
+    }
+    let hit = hit.expect("foreign row still listed");
+    assert!(
+        hit["document_number"].as_str().unwrap().contains("undecryptable"),
+        "redacted placeholder, got: {}",
+        hit["document_number"]
+    );
+}

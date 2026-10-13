@@ -15,7 +15,7 @@ export default function ReviewDesk() {
   const queue = useKycQueue(tab)
   const [note, setNote] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | null>(null)
-  const [card, setCard] = useState<{ name: string; payload: string } | null>(null)
+  const [card, setCard] = useState<{ name: string; payload: string; qrUrl: string } | null>(null)
 
   async function decide(app: KycApplication, decision: 'approved' | 'rejected') {
     setNotice(null)
@@ -32,13 +32,21 @@ export default function ReviewDesk() {
 
   async function issueCard(app: KycApplication) {
     setNotice(null)
+    setCard(null)
     const res = await apiFetch(`/kyc/applications/${app.id}/press-card`)
     if (!res.ok) {
       setNotice(queueError(await res.json().catch(() => ({})), 'Could not issue press card'))
       return
     }
     const payload = await res.text()
-    setCard({ name: app.full_name, payload })
+    const img = await apiFetch(`/kyc/applications/${app.id}/press-card.png`)
+    if (!img.ok) {
+      setNotice('Card payload ready, but QR image failed — use the JSON fallback')
+      setCard({ name: app.full_name, payload, qrUrl: '' })
+      return
+    }
+    const blob = await img.blob()
+    setCard({ name: app.full_name, payload, qrUrl: URL.createObjectURL(blob) })
   }
 
   const rows = queue.data ?? []
@@ -115,13 +123,17 @@ export default function ReviewDesk() {
         ))}
       </ol>
       {card ? (
-        <div className="mt-4 border-2 border-signal bg-white p-4">
-          <p className="font-display text-lg uppercase">Press card — {card.name}</p>
-          <p className="mt-1 font-ledger text-xs break-all">{card.payload}</p>
-          <p className="mt-2 text-sm">
-            Paste this payload into a QR generator for the gate scan; verifiers check it at
-            POST /kyc/verify.
-          </p>
+        <div className="mt-4 flex gap-4 border-2 border-signal bg-white p-4">
+          {card.qrUrl ? (
+            <img src={card.qrUrl} alt={`Press card QR for ${card.name}`} className="h-48 w-48 border border-ink" />
+          ) : null}
+          <div>
+            <p className="font-display text-lg uppercase">Press card — {card.name}</p>
+            <p className="mt-1 font-ledger text-xs break-all">{card.payload}</p>
+            <p className="mt-2 text-sm">
+              Scan the QR at the gate; the JSON fallback covers damaged prints.
+            </p>
+          </div>
         </div>
       ) : null}
     </section>

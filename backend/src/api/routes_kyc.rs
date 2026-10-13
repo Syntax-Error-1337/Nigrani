@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
+    response::IntoResponse,
     Json,
 };
 use base64::Engine as _;
@@ -59,14 +60,26 @@ fn to_application(
     crypto: &crate::infrastructure::crypto::TemplateCrypto,
     row: KycRow,
 ) -> AppResult<Option<KycApplication>> {
+    // Per-row isolation: one undecryptable row (foreign key, corruption)
+    // degrades to redacted placeholders instead of failing the whole list.
+    // The row stays visible so reviewers notice and re-request documents.
+    const REDACTED: &str = "[undecryptable — re-request documents]";
+    let document_number = crypto.decrypt(&row.document_number).unwrap_or_else(|e| {
+        tracing::error!(id = %row.id, error = %e, "kyc row undecryptable");
+        REDACTED.to_owned()
+    });
+    let photo_url = crypto.decrypt_opt(&row.photo_url).unwrap_or_else(|e| {
+        tracing::error!(id = %row.id, error = %e, "kyc photo undecryptable");
+        REDACTED.to_owned()
+    });
     Ok(Some(KycApplication {
         id: row.id,
         full_name: row.full_name,
         organization: row.organization,
         document_type: DocumentType::parse(&row.document_type)
             .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?,
-        document_number: crypto.decrypt(&row.document_number)?,
-        photo_url: crypto.decrypt_opt(&row.photo_url)?,
+        document_number,
+        photo_url,
         status: KycStatus::parse(&row.status)
             .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?,
         submitted_at: row.submitted_at,
@@ -229,8 +242,64 @@ pub async fn press_card(
     if row.status != KycStatus::Approved.as_str() {
         return Err(AppError::Conflict("press card requires an approved application".to_owned()));
     }
-    let card = sign_card(&state.jwt_secret, &row);
+    let card = approved_card(&state, application_id, row)?;
     Ok(Json(card))
+}
+
+/// Shared loader: approved row → signed payload (JSON and PNG agree byte-wise).
+fn approved_card(
+    state: &AppState,
+    application_id: Uuid,
+    row: KycRow,
+) -> AppResult<PressCard> {
+    if row.status != KycStatus::Approved.as_str() {
+        return Err(AppError::Conflict("press card requires an approved application".to_owned()));
+    }
+    let _ = application_id;
+    Ok(sign_card(&state.jwt_secret, &row))
+}
+
+/// QR image of the signed payload: same JSON bytes as `/press-card`,
+/// error-correction M, 512px PNG. Gates scan this; kiosk paste stays fallback.
+pub async fn press_card_png(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(application_id): Path<Uuid>,
+) -> AppResult<impl IntoResponse> {
+    require_permission(&state, &user, "kyc:review").await?;
+    let row: Option<KycRow> = sqlx::query_as(&format!(
+        "SELECT {ROW_COLS} FROM kyc_applications WHERE id = $1"
+    ))
+    .bind(application_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some(row) = row else {
+        return Err(AppError::NotFound("application not found".to_owned()));
+    };
+    let card = approved_card(&state, application_id, row)?;
+    let payload = serde_json::to_string(&card)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("card serialize failed: {e}")))?;
+    let code = qrcode::QrCode::with_error_correction_level(
+        payload.as_bytes(),
+        qrcode::EcLevel::M,
+    )
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("qr encode failed: {e}")))?;
+    let img = code.render::<image::Luma<u8>>().max_dimensions(512, 512).build();
+    let (width, height) = (img.width(), img.height());
+    let mut png = Vec::new();
+    image::ImageEncoder::write_image(
+        image::codecs::png::PngEncoder::new(&mut png),
+        &img.into_raw(),
+        width,
+        height,
+        image::ExtendedColorType::L8,
+    )
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("png encode failed: {e}")))?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "image/png")],
+        png,
+    ))
 }
 
 fn sign_card(secret: &[u8], row: &KycRow) -> PressCard {
