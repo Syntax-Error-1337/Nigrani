@@ -1,5 +1,6 @@
 mod auth;
 pub use auth::require_permission;
+mod routes_audit;
 pub mod events;
 mod paging;
 pub mod rate_limit;
@@ -16,6 +17,7 @@ use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use self::events::events_ws;
+use self::routes_audit::{list_audit, site_audit, verify_audit};
 use self::routes_auth::{list_users, login, logout, logout_all, me, refresh};
 use self::routes_forensics::{
     create_incident, enroll_embedding, list_incidents, search_embeddings, site_heatmap,
@@ -72,6 +74,9 @@ pub fn router(state: AppState) -> Router {
         .route("/forensics/search", post(search_embeddings))
         .route("/sites/:site_id/incidents", post(create_incident).get(list_incidents))
         .route("/sites/:site_id/heatmap", get(site_heatmap))
+        .route("/audit", get(list_audit))
+        .route("/audit/verify", get(verify_audit))
+        .route("/sites/:site_id/audit", get(site_audit))
         .merge(kyc_submit)
         .merge(auth)
         .merge(refresh)

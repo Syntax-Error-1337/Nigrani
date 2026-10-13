@@ -160,6 +160,11 @@ pub async fn record_event(
         .await
         .map_err(AppError::Db)?;
     let log = row.into_log();
+    super::routes_audit::record(
+        &state.pool, Some(user.id), "gate.event", "entry_log", Some(log.id),
+        serde_json::json!({"gate_id": gate_id, "direction": log.direction.as_str(), "method": log.method.as_str()}),
+    )
+    .await;
     state.hub.publish(&super::events::HubEvent::Crossing {
         at: log.recorded_at,
         site_id,

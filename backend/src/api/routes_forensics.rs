@@ -249,7 +249,13 @@ pub async fn create_incident(
         .fetch_one(&state.pool)
         .await
         .map_err(AppError::Db)?;
-    Ok(Json(row.into_incident()))
+    let incident = row.into_incident();
+    super::routes_audit::record(
+        &state.pool, Some(user.id), "incident.created", "incident", Some(incident.id),
+        serde_json::json!({"site_id": site_id, "title": incident.title}),
+    )
+    .await;
+    Ok(Json(incident))
 }
 
 #[derive(Debug, Deserialize)]

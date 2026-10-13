@@ -114,10 +114,14 @@ pub async fn submit_kyc(
     .fetch_one(&state.pool)
     .await
     .map_err(AppError::Db)?;
-    Ok(Json(
-        to_application(&crypto, row)?
-            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?,
-    ))
+    let app = to_application(&crypto, row)?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?;
+    super::routes_audit::record(
+        &state.pool, None, "kyc.submitted", "kyc_application", Some(app.id),
+        serde_json::json!({"full_name": app.full_name}),
+    )
+    .await;
+    Ok(Json(app))
 }
 
 /// Reviewer queue; optional `?status=pending|approved|rejected`.
@@ -192,6 +196,11 @@ pub async fn decide_kyc(
     let crypto = crypto(&state)?;
     let app = to_application(&crypto, row)?
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?;
+    super::routes_audit::record(
+        &state.pool, Some(user.id), "kyc.decided", "kyc_application", Some(app.id),
+        serde_json::json!({"decision": status.as_str()}),
+    )
+    .await;
     state.hub.publish(&super::events::HubEvent::KycDecided {
         at: chrono::Utc::now(),
         application_id: app.id,

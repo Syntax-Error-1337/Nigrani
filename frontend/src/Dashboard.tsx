@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AuditTrail from './AuditTrail'
 import ForensicBench from './ForensicBench'
 import Kiosk from './Kiosk'
 import ReviewDesk from './ReviewDesk'
@@ -193,6 +194,9 @@ export default function Dashboard() {
         )}
         {(user.role === 'ForensicAnalyst' || user.role === 'SuperAdmin') && (
           <ForensicBench siteId={activeSiteId} />
+        )}
+        {(user.role === 'SuperAdmin' || user.role === 'SiteCommander') && (
+          <AuditTrail siteId={activeSiteId} />
         )}
 
         {canWrite && activeSiteId ? (

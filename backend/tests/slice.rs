@@ -999,3 +999,99 @@ async fn event_stream_fans_out_crossings() {
     let bad = format!("{}/events?token=nope", srv.base.replace("http", "ws"));
     assert!(tokio_tungstenite::connect_async(&bad).await.is_err());
 }
+
+#[tokio::test]
+async fn audit_trail_records_and_verifies() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let gate = srv.login("gate").await;
+
+    // A failed login is recorded (actor unknown).
+    srv.client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": "ghost", "password": "x" }))
+        .send()
+        .await
+        .unwrap();
+    // A gate denial for the viewer role.
+    let res = srv
+        .client
+        .get(format!("{}/audit", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+
+    // Trail shows the failed login; chain verifies.
+    let trail: Value = srv
+        .client
+        .get(format!("{}/audit?entity=session&limit=5", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(trail.as_array().unwrap().iter().any(|e| e["action"] == "login.failed"));
+    let verdict: Value = srv
+        .client
+        .get(format!("{}/audit/verify", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(verdict["ok"], true);
+    assert!(verdict["checked"].as_i64().unwrap() >= 1);
+
+    // Tamper with a row's detail directly → verifier names it.
+    // Originals are captured and restored: the shared dev DB must keep a
+    // valid chain after this test (see the seq-3 repair saga).
+    let state = test_state().await;
+    let victim: (i64, Value, String) =
+        sqlx::query_as("SELECT seq, detail, hash FROM audit_log ORDER BY seq DESC LIMIT 1")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    sqlx::query("UPDATE audit_log SET detail = '{\"forged\": true}' WHERE seq = $1")
+        .bind(victim.0)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    let verdict: Value = srv
+        .client
+        .get(format!("{}/audit/verify", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(verdict["ok"], false);
+    assert_eq!(verdict["first_bad"], victim.0);
+    // Restore: original detail + hash byte-for-byte (successor linkage intact
+    // because only this row's pair changes back to its committed values).
+    sqlx::query("UPDATE audit_log SET detail = $1, hash = $2 WHERE seq = $3")
+        .bind(victim.1)
+        .bind(victim.2)
+        .bind(victim.0)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    let verdict: Value = srv
+        .client
+        .get(format!("{}/audit/verify", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(verdict["ok"], true);
+}

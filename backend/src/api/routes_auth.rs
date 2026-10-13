@@ -62,8 +62,15 @@ pub async fn login(
     .fetch_optional(&state.pool)
     .await
     .map_err(AppError::Db)?;
-    let row = row.ok_or_else(|| AppError::Unauthorized("invalid credentials".to_owned()))?;
-    verify_password(&row.password_hash, &body.password)?;
+    let Some(row) = row else {
+        super::routes_audit::record(&state.pool, None, "login.failed", "session", None, serde_json::json!({"username": body.username})).await;
+        return Err(AppError::Unauthorized("invalid credentials".to_owned()));
+    };
+    if let Err(e) = verify_password(&row.password_hash, &body.password) {
+        super::routes_audit::record(&state.pool, Some(row.id), "login.failed", "session", None, serde_json::json!({"username": body.username})).await;
+        return Err(e);
+    }
+    super::routes_audit::record(&state.pool, Some(row.id), "login.ok", "session", None, serde_json::json!({"username": body.username})).await;
     let role = Role::from_name(&row.role)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role {}", row.role)))?;
     let access_token = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
