@@ -58,10 +58,10 @@ fn to_application(row: KycRow) -> Option<KycApplication> {
         id: row.id,
         full_name: row.full_name,
         organization: row.organization,
-        document_type: DocumentType::from_str(&row.document_type)?,
+        document_type: DocumentType::parse(&row.document_type)?,
         document_number: row.document_number,
         photo_url: row.photo_url,
-        status: KycStatus::from_str(&row.status)?,
+        status: KycStatus::parse(&row.status)?,
         submitted_at: row.submitted_at,
         decided_at: row.decided_at,
         decided_by: row.decided_by,
@@ -84,7 +84,7 @@ pub async fn submit_kyc(
     if body.document_number.trim().is_empty() {
         return Err(AppError::BadRequest("document number required".to_owned()));
     }
-    let document_type = DocumentType::from_str(&body.document_type).ok_or_else(|| {
+    let document_type = DocumentType::parse(&body.document_type).ok_or_else(|| {
         AppError::BadRequest("document_type must be aadhaar, pan, or press_id".to_owned())
     })?;
     let row: KycRow = sqlx::query_as(&format!(
@@ -110,7 +110,7 @@ pub async fn list_kyc(
 ) -> AppResult<Json<Vec<KycApplication>>> {
     require_permission(&state.pool, &user, "kyc:review").await?;
     let status = filter.status.as_deref().unwrap_or("pending");
-    if KycStatus::from_str(status).is_none() {
+    if KycStatus::parse(status).is_none() {
         return Err(AppError::BadRequest("status must be pending, approved, or rejected".to_owned()));
     }
     let rows: Vec<KycRow> = sqlx::query_as(&format!(

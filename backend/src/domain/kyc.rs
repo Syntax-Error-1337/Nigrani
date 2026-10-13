@@ -12,7 +12,7 @@ pub enum KycStatus {
 }
 
 impl KycStatus {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "pending" => Some(Self::Pending),
             "approved" => Some(Self::Approved),
@@ -40,7 +40,7 @@ pub enum DocumentType {
 }
 
 impl DocumentType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "aadhaar" => Some(Self::Aadhaar),
             "pan" => Some(Self::Pan),

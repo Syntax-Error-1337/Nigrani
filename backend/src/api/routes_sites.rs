@@ -77,7 +77,7 @@ pub async fn list_gates(
     .map_err(AppError::Db)?;
     let mut out = Vec::with_capacity(rows.len());
     for (id, gate_site_id, name, direction_str, created_at) in rows {
-        let Some(direction) = GateDirection::from_str(&direction_str) else {
+        let Some(direction) = GateDirection::parse(&direction_str) else {
             continue;
         };
         out.push(Gate { id, site_id: gate_site_id, name, direction, created_at });
@@ -98,7 +98,7 @@ pub async fn create_gate(
     let direction = body
         .direction
         .as_deref()
-        .map(GateDirection::from_str)
+        .map(GateDirection::parse)
         .unwrap_or(Some(GateDirection::Entry))
         .ok_or_else(|| AppError::BadRequest("direction must be entry, exit, or both".to_owned()))?;
     let (id, gate_site_id, name, direction_str, created_at): (Uuid, Uuid, String, String, Ts) =
@@ -112,7 +112,7 @@ pub async fn create_gate(
         .fetch_one(&state.pool)
         .await
         .map_err(map_constraint)?;
-    let direction = GateDirection::from_str(&direction_str).unwrap_or(GateDirection::Entry);
+    let direction = GateDirection::parse(&direction_str).unwrap_or(GateDirection::Entry);
     Ok(Json(Gate { id, site_id: gate_site_id, name, direction, created_at }))
 }
 

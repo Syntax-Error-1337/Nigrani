@@ -1,14 +1,10 @@
 //! Nigrani core backend: authenticated RBAC API for protest-site management.
-mod api;
-mod core;
-mod domain;
-mod infrastructure;
-
 use std::net::SocketAddr;
+
+use nigrani::api::state::AppState;
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use api::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,10 +17,10 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let state = AppState::from_env().await?;
-    crate::infrastructure::seed::seed_users(&state.pool).await?;
+    nigrani::infrastructure::seed::seed_users(&state.pool).await?;
     let addr: SocketAddr = std::env::var("BIND_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8080".into())
         .parse()?;
-    api::serve(state, addr).await?;
+    nigrani::api::serve(state, addr).await?;
     Ok(())
 }

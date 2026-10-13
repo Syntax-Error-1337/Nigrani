@@ -78,7 +78,7 @@ pub enum GateDirection {
 }
 
 impl GateDirection {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "entry" => Some(Self::Entry),
             "exit" => Some(Self::Exit),
