@@ -24,6 +24,9 @@ async fn test_state() -> nigrani::api::state::AppState {
         pool,
         jwt_secret: Arc::<[u8]>::from(b"test-secret".as_slice()),
         kyc_limiter: nigrani::api::rate_limit::Limiter::kyc(),
+        grants: nigrani::api::state::GrantCache::builder()
+            .time_to_live(std::time::Duration::from_secs(60))
+            .build(),
     }
 }
 
@@ -301,4 +304,59 @@ async fn kyc_submit_rate_limited() {
         assert_eq!(res.status(), 200);
     }
     assert!(limited, "expected 429 within 12 rapid submits");
+}
+
+#[tokio::test]
+async fn grant_cache_serves_hits_and_invalidation() {
+    // Exercises the AppState-constructed cache directly: insert-on-miss,
+    // hit without DB, and explicit invalidation on revocation.
+    let srv = TestServer::spawn().await;
+    let _ = &srv;
+    let state = test_state().await;
+    let gate_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username = 'gate'")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    let user = nigrani::domain::User {
+        id: gate_id,
+        username: "gate".into(),
+        role: nigrani::domain::Role::GateOperator,
+    };
+    // GateOperator holds gates:read in seed data: first call misses, hits DB.
+    nigrani::api::require_permission(&state, &user, "gates:read")
+        .await
+        .expect("seeded grant");
+    assert!(state.grants.get(&("GateOperator".to_owned(), "gates:read".to_owned())).await.is_some());
+    // Revoke in DB: cached grant still allows (documented TTL semantics).
+    let role_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE name = 'GateOperator'")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    let perm_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM permissions WHERE name = 'gates:read'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2")
+        .bind(role_id)
+        .bind(perm_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    nigrani::api::require_permission(&state, &user, "gates:read")
+        .await
+        .expect("cached grant survives revocation within TTL");
+    // Invalidate: denial is now enforced.
+    state.grants.invalidate(&("GateOperator".to_owned(), "gates:read".to_owned())).await;
+    let err = nigrani::api::require_permission(&state, &user, "gates:read")
+        .await
+        .expect_err("revoked grant denied after invalidation");
+    assert!(err.to_string().contains("lacks permission"));
+    // Restore seed for other tests (isolated rows elsewhere, shared role grant).
+    sqlx::query("INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(role_id)
+        .bind(perm_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
 }

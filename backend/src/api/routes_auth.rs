@@ -152,7 +152,7 @@ pub async fn list_users(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
 ) -> AppResult<Json<Vec<MeResponse>>> {
-    require_permission(&state.pool, &user, "users:read").await?;
+    require_permission(&state, &user, "users:read").await?;
     let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
         r#"SELECT u.id, u.username, r.name AS role
            FROM users u JOIN roles r ON r.id = u.role_id ORDER BY u.username"#,

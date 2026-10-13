@@ -38,10 +38,15 @@ impl FromRequestParts<AppState> for AuthUser {
 }
 
 /// Permission guard: caller MUST hold `permission` (checked against the DB).
-pub async fn require_permission(pool: &sqlx::PgPool, user: &User, permission: &str) -> AppResult<()> {
+pub async fn require_permission(state: &AppState, user: &User, permission: &str) -> AppResult<()> {
     // SuperAdmin bypass keeps the hot path to a single cheap check.
     if user.role == Role::SuperAdmin {
         return Ok(());
+    }
+    // Role-level grant cache: one entry per (role, permission), 60s TTL.
+    let key = (user.role.as_str().to_owned(), permission.to_owned());
+    if let Some(granted) = state.grants.get(&key).await {
+        return grant_result(user, permission, granted);
     }
     let granted: bool = sqlx::query_scalar(
         "SELECT EXISTS (
@@ -54,9 +59,14 @@ pub async fn require_permission(pool: &sqlx::PgPool, user: &User, permission: &s
     )
     .bind(user.id)
     .bind(permission)
-    .fetch_one(pool)
+    .fetch_one(&state.pool)
     .await
     .map_err(AppError::Db)?;
+    state.grants.insert(key, granted).await;
+    grant_result(user, permission, granted)
+}
+
+fn grant_result(user: &User, permission: &str, granted: bool) -> AppResult<()> {
     if granted {
         Ok(())
     } else {

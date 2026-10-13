@@ -4,11 +4,17 @@ use axum::extract::FromRef;
 
 use crate::infrastructure::db;
 
+/// Cached role grant: (role, permission) -> granted at.
+pub type GrantCache = moka::future::Cache<(String, String), bool>;
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub jwt_secret: Arc<[u8]>,
     pub kyc_limiter: super::rate_limit::Limiter,
+    /// Role-grant cache (60s TTL). Revocation propagates within the TTL;
+    /// SuperAdmin bypass never consults it.
+    pub grants: GrantCache,
 }
 
 impl AppState {
@@ -30,6 +36,7 @@ impl AppState {
             pool,
             jwt_secret: jwt_secret.into_bytes().into(),
             kyc_limiter: super::rate_limit::Limiter::kyc(),
+            grants: GrantCache::builder().time_to_live(std::time::Duration::from_secs(60)).build(),
         })
     }
 }

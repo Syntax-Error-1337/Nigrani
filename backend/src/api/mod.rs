@@ -1,4 +1,5 @@
 mod auth;
+pub use auth::require_permission;
 pub mod rate_limit;
 mod routes_auth;
 mod routes_kyc;

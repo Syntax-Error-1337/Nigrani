@@ -108,7 +108,7 @@ pub async fn list_kyc(
     AuthUser(user): AuthUser,
     Query(filter): Query<KycFilter>,
 ) -> AppResult<Json<Vec<KycApplication>>> {
-    require_permission(&state.pool, &user, "kyc:review").await?;
+    require_permission(&state, &user, "kyc:review").await?;
     let status = filter.status.as_deref().unwrap_or("pending");
     if KycStatus::parse(status).is_none() {
         return Err(AppError::BadRequest("status must be pending, approved, or rejected".to_owned()));
@@ -130,7 +130,7 @@ pub async fn decide_kyc(
     Path(application_id): Path<Uuid>,
     Json(body): Json<DecideKyc>,
 ) -> AppResult<Json<KycApplication>> {
-    require_permission(&state.pool, &user, "kyc:review").await?;
+    require_permission(&state, &user, "kyc:review").await?;
     let status = match body.decision.as_str() {
         "approved" => KycStatus::Approved,
         "rejected" => KycStatus::Rejected,
@@ -169,7 +169,7 @@ pub async fn press_card(
     AuthUser(user): AuthUser,
     Path(application_id): Path<Uuid>,
 ) -> AppResult<Json<PressCard>> {
-    require_permission(&state.pool, &user, "kyc:review").await?;
+    require_permission(&state, &user, "kyc:review").await?;
     let row: Option<KycRow> = sqlx::query_as(&format!(
         "SELECT {ROW_COLS} FROM kyc_applications WHERE id = $1"
     ))

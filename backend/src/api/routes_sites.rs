@@ -28,7 +28,7 @@ pub async fn list_sites(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
 ) -> AppResult<Json<Vec<Site>>> {
-    require_permission(&state.pool, &user, "sites:read").await?;
+    require_permission(&state, &user, "sites:read").await?;
     let rows: Vec<(Uuid, String, String, Ts)> =
         sqlx::query_as("SELECT id, name, location, created_at FROM sites ORDER BY name")
             .fetch_all(&state.pool)
@@ -46,7 +46,7 @@ pub async fn create_site(
     AuthUser(user): AuthUser,
     Json(body): Json<CreateSite>,
 ) -> AppResult<Json<Site>> {
-    require_permission(&state.pool, &user, "sites:write").await?;
+    require_permission(&state, &user, "sites:write").await?;
     if body.name.trim().is_empty() {
         return Err(AppError::BadRequest("site name required".to_owned()));
     }
@@ -67,7 +67,7 @@ pub async fn list_gates(
     AuthUser(user): AuthUser,
     Path(site_id): Path<Uuid>,
 ) -> AppResult<Json<Vec<Gate>>> {
-    require_permission(&state.pool, &user, "gates:read").await?;
+    require_permission(&state, &user, "gates:read").await?;
     let rows: Vec<(Uuid, Uuid, String, String, Ts)> = sqlx::query_as(
         "SELECT id, site_id, name, direction, created_at FROM gates WHERE site_id = $1 ORDER BY name",
     )
@@ -91,7 +91,7 @@ pub async fn create_gate(
     Path(site_id): Path<Uuid>,
     Json(body): Json<CreateGate>,
 ) -> AppResult<Json<Gate>> {
-    require_permission(&state.pool, &user, "gates:write").await?;
+    require_permission(&state, &user, "gates:write").await?;
     if body.name.trim().is_empty() {
         return Err(AppError::BadRequest("gate name required".to_owned()));
     }
