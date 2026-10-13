@@ -35,14 +35,16 @@ function errorMessage(body: unknown, fallback: string): string {
 
 // Parallel top-level fetches (no waterfall): sites list loads alongside gates
 // once a site is selected; see GatesPanel for the dependent query.
-export function useSites() {
-  return useQuery({ queryKey: ['sites'], queryFn: () => getJson<Site[]>('/sites') })
+export function useSites(q: string) {
+  const query = q ? `?q=${encodeURIComponent(q)}` : ''
+  return useQuery({ queryKey: ['sites', q], queryFn: () => getJson<Site[]>(`/sites${query}`) })
 }
 
-export function useGates(siteId: string | null) {
+export function useGates(siteId: string | null, q: string) {
+  const query = q ? `?q=${encodeURIComponent(q)}` : ''
   return useQuery({
-    queryKey: ['gates', siteId],
-    queryFn: () => getJson<Gate[]>(`/sites/${siteId}/gates`),
+    queryKey: ['gates', siteId, q],
+    queryFn: () => getJson<Gate[]>(`/sites/${siteId}/gates${query}`),
     enabled: siteId !== null,
   })
 }
@@ -69,10 +71,11 @@ export interface PressCard {
   signature: string
 }
 
-export function useKycQueue(status: string) {
+export function useKycQueue(status: string, q: string) {
+  const extra = q ? `&q=${encodeURIComponent(q)}` : ''
   return useQuery({
-    queryKey: ['kyc', status],
-    queryFn: () => getJson<KycApplication[]>(`/kyc/applications?status=${status}`),
+    queryKey: ['kyc', status, q],
+    queryFn: () => getJson<KycApplication[]>(`/kyc/applications?status=${status}${extra}`),
   })
 }
 

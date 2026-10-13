@@ -1349,3 +1349,85 @@ async fn foreign_key_rows_redact_not_fail() {
         hit["document_number"]
     );
 }
+
+#[tokio::test]
+async fn demo_search_narrows_lists() {
+    let srv = TestServer::spawn().await;
+    let gate = srv.login("gate").await;
+    let all: Value = srv
+        .client
+        .get(format!("{}/sites?limit=200", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!all.as_array().unwrap().is_empty());
+    let jantar: Value = srv
+        .client
+        .get(format!("{}/sites?q=jantar", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let names: Vec<&str> = jantar
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert!(!names.is_empty());
+    assert!(names.iter().all(|n| n.to_lowercase().contains("jantar")));
+    // Gate role cannot reset; tested against superadmin below in full run.
+    let res = srv
+        .client
+        .post(format!("{}/admin/demo/reset", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+}
+
+// Destructive: truncates all operational tables. Opt-in via env so the
+// parallel suite never observes a wiped database; run explicitly:
+//   RUN_DESTRUCTIVE_TESTS=1 cargo test demo_reset -- --test-threads=1 --nocapture
+#[tokio::test]
+async fn demo_reset_restores_baseline() {
+    if std::env::var("RUN_DESTRUCTIVE_TESTS").as_deref() != Ok("1") {
+        return;
+    }
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let report: Value = srv
+        .client
+        .post(format!("{}/admin/demo/reset", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(report["truncated"].is_object());
+    // Baseline: exactly Jantar Mantar + 4 gates + 5 users + 5 policies.
+    let state = test_state().await;
+    let sites: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sites").fetch_one(&state.pool).await.unwrap();
+    let gates: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM gates").fetch_one(&state.pool).await.unwrap();
+    let users: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users").fetch_one(&state.pool).await.unwrap();
+    let policies: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM retention_policies").fetch_one(&state.pool).await.unwrap();
+    assert_eq!((sites.0, gates.0, users.0, policies.0), (1, 4, 5, 5));
+    // Genesis audit row opens the new trail.
+    let genesis: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM audit_log WHERE action = 'demo.reset'")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(genesis.0, 1);
+}

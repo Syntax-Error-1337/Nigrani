@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useDebounced } from './useDebounced'
 import { useKycQueue, type KycApplication } from './api'
 import { apiFetch } from './session'
 
@@ -12,7 +13,8 @@ function queueError(body: unknown, fallback: string): string {
 
 export default function ReviewDesk() {
   const [tab, setTab] = useState('pending')
-  const queue = useKycQueue(tab)
+  const [search, setSearch] = useState('')
+  const queue = useKycQueue(tab, useDebounced(search))
   const [note, setNote] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | null>(null)
   const [card, setCard] = useState<{ name: string; payload: string; qrUrl: string } | null>(null)
@@ -53,7 +55,15 @@ export default function ReviewDesk() {
 
   return (
     <section className="mt-8">
-      <h2 className="font-display text-2xl uppercase">Press review desk</h2>
+      <div className="flex items-baseline gap-3">
+        <h2 className="font-display text-2xl uppercase">Press review desk</h2>
+        <input
+          className="border border-ink px-2 py-1 text-sm"
+          placeholder="Search applicants…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
       <div className="mt-3 flex gap-2">
         {['pending', 'approved', 'rejected'].map((s) => (
           <button

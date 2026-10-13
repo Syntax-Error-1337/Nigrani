@@ -32,6 +32,9 @@ pub struct KycFilter {
     pub status: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    /// Substring match on name/organization (plaintext columns only —
+    /// encrypted document numbers are not searchable; see docs).
+    pub q: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,11 +152,14 @@ pub async fn list_kyc(
         return Err(AppError::BadRequest("status must be pending, approved, or rejected".to_owned()));
     }
     let (limit, offset) = super::paging::resolve(filter.limit, filter.offset, 50)?;
+    let pattern = format!("%{}%", filter.q.as_deref().unwrap_or(""));
     let rows: Vec<KycRow> = sqlx::query_as(&format!(
-        "SELECT {ROW_COLS} FROM kyc_applications WHERE status = $1
-         ORDER BY submitted_at LIMIT $2 OFFSET $3"
+        "SELECT {ROW_COLS} FROM kyc_applications
+         WHERE status = $1 AND (full_name ILIKE $2 OR organization ILIKE $2)
+         ORDER BY submitted_at LIMIT $3 OFFSET $4"
     ))
     .bind(status)
+    .bind(pattern)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)

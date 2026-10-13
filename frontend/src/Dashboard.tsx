@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useDebounced } from './useDebounced'
 import AuditTrail from './AuditTrail'
 import RetentionPanel from './RetentionPanel'
 import ForensicBench from './ForensicBench'
@@ -33,9 +34,11 @@ const ROLE_PANELS: Record<Role, { heading: string; brief: string }> = {
 export default function Dashboard() {
   const user = useSession((s) => s.user)
   const logout = useSession((s) => s.logout)
-  const sitesQuery = useSites()
+  const [siteSearch, setSiteSearch] = useState('')
+  const [gateSearch, setGateSearch] = useState('')
+  const sitesQuery = useSites(useDebounced(siteSearch))
   const [siteId, setSiteId] = useState<string | null>(null)
-  const gatesQuery = useGates(siteId)
+  const gatesQuery = useGates(siteId, useDebounced(gateSearch))
   const [gateId, setGateId] = useState<string | null>(null)
   const [newSite, setNewSite] = useState({ name: '', location: '' })
   const [newGate, setNewGate] = useState({ name: '', direction: 'entry' })
@@ -110,7 +113,15 @@ export default function Dashboard() {
         ) : null}
 
         <section className="mt-6">
-          <h2 className="font-display text-2xl uppercase">Protest sites</h2>
+          <div className="flex items-baseline gap-3">
+            <h2 className="font-display text-2xl uppercase">Protest sites</h2>
+            <input
+              className="border border-ink px-2 py-1 text-sm"
+              placeholder="Search sites…"
+              value={siteSearch}
+              onChange={(e) => setSiteSearch(e.target.value)}
+            />
+          </div>
           {sitesQuery.isLoading ? <p className="mt-2">Loading sites…</p> : null}
           {sitesQuery.isError ? (
             <p className="mt-2 text-deny">Sites would not load. Check the API connection.</p>
@@ -160,7 +171,15 @@ export default function Dashboard() {
         </section>
 
         <section className="mt-8">
-          <h2 className="font-display text-2xl uppercase">Gates</h2>
+          <div className="flex items-baseline gap-3">
+            <h2 className="font-display text-2xl uppercase">Gates</h2>
+            <input
+              className="border border-ink px-2 py-1 text-sm"
+              placeholder="Search gates…"
+              value={gateSearch}
+              onChange={(e) => setGateSearch(e.target.value)}
+            />
+          </div>
           {activeSiteId === null ? (
             <p className="mt-2">No site selected.</p>
           ) : gatesQuery.isLoading ? (

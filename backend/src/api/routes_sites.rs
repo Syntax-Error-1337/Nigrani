@@ -17,6 +17,8 @@ type Ts = chrono::DateTime<chrono::Utc>;
 pub struct ListFilter {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    /// Substring match on name/location.
+    pub q: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,9 +40,13 @@ pub async fn list_sites(
 ) -> AppResult<Json<Vec<Site>>> {
     require_permission(&state, &user, "sites:read").await?;
     let (limit, offset) = resolve_page(filter.limit, filter.offset, 50)?;
+    let pattern = format!("%{}%", filter.q.as_deref().unwrap_or(""));
     let rows: Vec<(Uuid, String, String, Ts)> = sqlx::query_as(
-        "SELECT id, name, location, created_at FROM sites ORDER BY name LIMIT $1 OFFSET $2",
+        "SELECT id, name, location, created_at FROM sites
+         WHERE name ILIKE $1 OR location ILIKE $1
+         ORDER BY name LIMIT $2 OFFSET $3",
     )
+    .bind(pattern)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
@@ -84,11 +90,13 @@ pub async fn list_gates(
 ) -> AppResult<Json<Vec<Gate>>> {
     require_permission(&state, &user, "gates:read").await?;
     let (limit, offset) = resolve_page(filter.limit, filter.offset, 50)?;
+    let pattern = format!("%{}%", filter.q.as_deref().unwrap_or(""));
     let rows: Vec<(Uuid, Uuid, String, String, Ts)> = sqlx::query_as(
         "SELECT id, site_id, name, direction, created_at FROM gates
-         WHERE site_id = $1 ORDER BY name LIMIT $2 OFFSET $3",
+         WHERE site_id = $1 AND name ILIKE $2 ORDER BY name LIMIT $3 OFFSET $4",
     )
     .bind(site_id)
+    .bind(pattern)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
