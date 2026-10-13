@@ -44,7 +44,8 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Bind and serve; split out so tests can build the router without serving.
+/// Bind and serve with graceful shutdown; split out so tests can build
+/// the router without serving.
 pub async fn serve(state: AppState, addr: std::net::SocketAddr) -> AppResult<()> {
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(addr)
@@ -55,7 +56,11 @@ pub async fn serve(state: AppState, addr: std::net::SocketAddr) -> AppResult<()>
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-        .await
-        .map_err(|e| anyhow::anyhow!("serve failed: {e}"))?;
+    .with_graceful_shutdown(async {
+        tokio::signal::ctrl_c().await.ok();
+        tracing::info!("shutdown signal received");
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("serve failed: {e}"))?;
     Ok(())
 }

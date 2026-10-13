@@ -21,20 +21,6 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = std::env::var("BIND_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8080".into())
         .parse()?;
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(|e| anyhow::anyhow!("bind {addr}: {e}"))?;
-    tracing::info!(%addr, "serving");
-    axum::serve(
-        listener,
-        nigrani::api::router(state)
-            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c().await.ok();
-            tracing::info!("shutdown signal received");
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("serve failed: {e}"))?;
+    nigrani::api::serve(state, addr).await?;
     Ok(())
 }
