@@ -33,6 +33,7 @@ pub async fn reset_demo(
         "audit_log",
         "face_embeddings",
         "entry_logs",
+        "incident_links",
         "incidents",
         "refresh_tokens",
         "gates",

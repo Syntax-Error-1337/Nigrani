@@ -1738,3 +1738,167 @@ async fn incident_lifecycle_transitions_assign_links() {
         .unwrap();
     assert_eq!(links.as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn incident_events_fan_out_and_coverage() {
+    use futures_util::StreamExt;
+    let srv = TestServer::spawn().await;
+    let analyst = srv.login("analyst").await;
+    let superadmin = srv.login("superadmin").await;
+    let url = format!("{}/events?token={analyst}", srv.base.replace("http", "ws"));
+    let (mut sock, _) = tokio_tungstenite::connect_async(&url).await.expect("ws");
+
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("CaseStream {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let inc: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "title": "Wire case" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let iid = inc["id"].as_str().unwrap().to_owned();
+    srv.client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/status", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "status": "investigating" }))
+        .send()
+        .await
+        .unwrap();
+    let users: Value = srv
+        .client
+        .get(format!("{}/users", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let analyst_id = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "analyst")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    srv.client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/assign", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "user_id": analyst_id }))
+        .send()
+        .await
+        .unwrap();
+    srv.client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/links", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "kind": "note", "note": "wire note" }))
+        .send()
+        .await
+        .unwrap();
+
+    // Drain until all four incident actions arrive (topology noise first).
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..16 {
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), sock.next())
+            .await
+            .expect("event in time")
+            .expect("ws message")
+            .expect("text");
+        let text = msg.into_text().expect("text");
+        if text.contains("\"kind\":\"incident\"") && text.contains(&iid) {
+            for action in ["created", "status", "assigned", "linked"] {
+                if text.contains(&format!("\"action\":\"{action}\"")) {
+                    seen.insert(action);
+                }
+            }
+        }
+        if seen.len() == 4 {
+            break;
+        }
+    }
+    assert_eq!(seen.len(), 4, "all four incident actions fanned out: {seen:?}");
+
+    // Export carries the lifecycle fields + links array.
+    let export: Value = srv
+        .client
+        .get(format!("{}/sites/{site_id}/export", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let row = export["incidents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == iid)
+        .expect("case in export");
+    assert_eq!(row["status"], "investigating");
+    assert_eq!(row["assigned_to"], analyst_id);
+    assert!(export["incident_links"].is_array());
+    assert_eq!(export["incident_links"].as_array().unwrap().len(), 1);
+
+    // Backdate the case + link to 5 days, tighten windows to 1 day, purge both.
+    let state = test_state().await;
+    sqlx::query("UPDATE incidents SET created_at = now() - interval '5 days' WHERE id = $1::uuid")
+        .bind(&iid)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE incident_links SET added_at = now() - interval '5 days' WHERE incident_id = $1::uuid",
+    )
+    .bind(&iid)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    for entity in ["incidents", "incident_links"] {
+        srv.client
+            .post(format!("{}/admin/retention/policies/{entity}", srv.base))
+            .bearer_auth(&superadmin)
+            .json(&json!({ "retain_days": 1 }))
+            .send()
+            .await
+            .unwrap();
+    }
+    let report: Value = srv
+        .client
+        .post(format!("{}/admin/retention/run", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(report["purged"]["incident_links"], 1);
+    assert_eq!(report["purged"]["incidents"], 1);
+    for entity in ["incidents", "incident_links"] {
+        srv.client
+            .post(format!("{}/admin/retention/policies/{entity}", srv.base))
+            .bearer_auth(&superadmin)
+            .json(&json!({ "retain_days": 365 }))
+            .send()
+            .await
+            .unwrap();
+    }
+}

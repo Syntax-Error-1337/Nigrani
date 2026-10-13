@@ -31,6 +31,13 @@ pub enum HubEvent {
         application_id: Uuid,
         decision: String,
     },
+    /// An incident case mutated (created, workflow status, assignment, evidence link).
+    Incident {
+        at: chrono::DateTime<chrono::Utc>,
+        site_id: Uuid,
+        incident_id: Uuid,
+        action: String,
+    },
     /// Topology changed (site or gate created).
     Topology {
         at: chrono::DateTime<chrono::Utc>,

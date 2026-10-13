@@ -88,7 +88,9 @@ pub async fn run_purge(
         policies.iter().find(|(e, _)| e == entity).map(|(_, d)| *d).unwrap_or(365)
     };
     let mut purged = std::collections::HashMap::new();
-    // Children first: embeddings → logs → applications → sessions.
+    // Children first: links → incidents → embeddings → logs → applications → sessions.
+    purged.insert("incident_links".into(), purge_older_than(&state, "incident_links", "added_at", window("incident_links")).await?);
+    purged.insert("incidents".into(), purge_older_than(&state, "incidents", "created_at", window("incidents")).await?);
     purged.insert("face_embeddings".into(), purge_older_than(&state, "face_embeddings", "captured_at", window("face_embeddings")).await?);
     purged.insert("entry_logs".into(), purge_older_than(&state, "entry_logs", "recorded_at", window("entry_logs")).await?);
     purged.insert("kyc_applications".into(), purge_older_than(&state, "kyc_applications", "submitted_at", window("kyc_applications")).await?);
@@ -130,6 +132,27 @@ async fn purge_older_than(
     Ok(n)
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct ExportIncident {
+    id: uuid::Uuid,
+    title: String,
+    description: String,
+    status: String,
+    assigned_to: Option<uuid::Uuid>,
+    resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExportLink {
+    id: uuid::Uuid,
+    incident_id: uuid::Uuid,
+    kind: String,
+    ref_id: String,
+    note: String,
+    added_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// Site data-portability export: gates + recent logs + incidents as JSON.
 pub async fn export_site(
     State(state): State<AppState>,
@@ -154,15 +177,23 @@ pub async fn export_site(
         .fetch_all(&state.pool)
         .await
         .map_err(AppError::Db)?;
-    let incidents: Vec<(uuid::Uuid, String, String, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(
-            "SELECT id, title, description, created_at FROM incidents
+    let incidents: Vec<ExportIncident> = sqlx::query_as(
+        "SELECT id, title, description, status, assigned_to, resolved_at, created_at FROM incidents
              WHERE site_id = $1 ORDER BY created_at DESC LIMIT 200",
-        )
-        .bind(site_id)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(AppError::Db)?;
+    )
+    .bind(site_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let links: Vec<ExportLink> = sqlx::query_as(
+        "SELECT l.id, l.incident_id, l.kind, l.ref_id, l.note, l.added_at
+             FROM incident_links l JOIN incidents i ON i.id = l.incident_id
+             WHERE i.site_id = $1 ORDER BY l.added_at DESC LIMIT 500",
+    )
+    .bind(site_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
     Ok(Json(serde_json::json!({
         "site_id": site_id,
         "exported_at": chrono::Utc::now(),
@@ -173,8 +204,13 @@ pub async fn export_site(
             "id": id, "gate_id": gate_id, "direction": direction,
             "method": method, "recorded_at": at,
         })).collect::<Vec<_>>(),
-        "incidents": incidents.iter().map(|(id, title, description, at)| serde_json::json!({
-            "id": id, "title": title, "description": description, "created_at": at,
+        "incidents": incidents.iter().map(|r| serde_json::json!({
+            "id": r.id, "title": r.title, "description": r.description, "status": r.status,
+            "assigned_to": r.assigned_to, "resolved_at": r.resolved_at, "created_at": r.created_at,
+        })).collect::<Vec<_>>(),
+        "incident_links": links.iter().map(|r| serde_json::json!({
+            "id": r.id, "incident_id": r.incident_id, "kind": r.kind,
+            "ref_id": r.ref_id, "note": r.note, "added_at": r.added_at,
         })).collect::<Vec<_>>(),
     })))
 }

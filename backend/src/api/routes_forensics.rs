@@ -309,6 +309,12 @@ pub async fn create_incident(
         serde_json::json!({"site_id": site_id, "title": incident.title}),
     )
     .await;
+    state.hub.publish(&super::events::HubEvent::Incident {
+        at: chrono::Utc::now(),
+        site_id,
+        incident_id: incident.id,
+        action: "created".to_owned(),
+    });
     Ok(Json(incident))
 }
 
@@ -414,6 +420,12 @@ pub async fn transition_incident(
         serde_json::json!({"from": current.status.as_str(), "to": next.as_str()}),
     )
     .await;
+    state.hub.publish(&super::events::HubEvent::Incident {
+        at: chrono::Utc::now(),
+        site_id,
+        incident_id: iid,
+        action: "status".to_owned(),
+    });
     Ok(Json(incident))
 }
 
@@ -482,6 +494,12 @@ pub async fn assign_incident(
         serde_json::json!({"assignee": target_id}),
     )
     .await;
+    state.hub.publish(&super::events::HubEvent::Incident {
+        at: chrono::Utc::now(),
+        site_id,
+        incident_id: iid,
+        action: "assigned".to_owned(),
+    });
     into_incident_or_500(row).map(Json)
 }
 
@@ -587,6 +605,12 @@ pub async fn add_incident_link(
         serde_json::json!({"kind": body.kind, "ref_id": ref_id}),
     )
     .await;
+    state.hub.publish(&super::events::HubEvent::Incident {
+        at: chrono::Utc::now(),
+        site_id,
+        incident_id: iid,
+        action: "linked".to_owned(),
+    });
     Ok(Json(row.into_link()))
 }
 
