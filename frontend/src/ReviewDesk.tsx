@@ -17,6 +17,7 @@ export default function ReviewDesk() {
   const queue = useKycQueue(tab, useDebounced(search))
   const [note, setNote] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | null>(null)
+  const [photo, setPhoto] = useState<{ name: string; url: string } | null>(null)
   const [card, setCard] = useState<{ name: string; payload: string; qrUrl: string } | null>(null)
 
   async function decide(app: KycApplication, decision: 'approved' | 'rejected') {
@@ -30,6 +31,27 @@ export default function ReviewDesk() {
       return
     }
     queue.refetch()
+  }
+
+  async function openPhoto(app: KycApplication) {
+    setNotice(null)
+    setPhoto(null)
+    const ref = app.photo_url
+    if (ref.startsWith('http://') || ref.startsWith('https://')) {
+      setPhoto({ name: app.full_name, url: ref })
+      return
+    }
+    // Otherwise treat as a snapshot key (UUID.jpg): presigned fetch.
+    const key = ref.startsWith('s3://') ? ref.slice(5) : ref
+    const res = await apiFetch(`/snapshots/${key}/share`)
+    if (!res.ok) {
+      setNotice('Photo unavailable')
+      return
+    }
+    const body: unknown = await res.json().catch(() => ({}))
+    if (body !== null && typeof body === 'object' && 'url' in body && typeof body.url === 'string') {
+      setPhoto({ name: app.full_name, url: body.url })
+    }
   }
 
   async function issueCard(app: KycApplication) {
@@ -92,6 +114,14 @@ export default function ReviewDesk() {
           <li key={app.id} className="px-4 py-3">
             <div className="flex flex-wrap items-baseline gap-3">
               <span className="font-display text-xl uppercase">{app.full_name}</span>
+              {app.photo_url ? (
+                <button
+                  onClick={() => openPhoto(app)}
+                  className="border border-ink px-1 font-ledger text-xs uppercase"
+                >
+                  Photo
+                </button>
+              ) : null}
               <span className="font-ledger text-xs text-neutral-500">
                 {app.organization || '—'} · {app.document_type} {app.document_number}
               </span>
@@ -132,6 +162,15 @@ export default function ReviewDesk() {
           </li>
         ))}
       </ol>
+      {photo ? (
+        <div className="mt-4 border-2 border-signal bg-white p-2">
+          <p className="font-display text-lg uppercase">Photo — {photo.name}</p>
+          <img src={photo.url} alt={`Applicant photo for ${photo.name}`} className="mt-1 max-h-64 w-auto" />
+          <button onClick={() => setPhoto(null)} className="mt-1 border border-ink px-2 py-1 font-ledger text-xs uppercase">
+            Close
+          </button>
+        </div>
+      ) : null}
       {card ? (
         <div className="mt-4 flex gap-4 border-2 border-signal bg-white p-4">
           {card.qrUrl ? (

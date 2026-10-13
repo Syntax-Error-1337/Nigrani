@@ -33,6 +33,7 @@ export default function Kiosk({
   const [direction, setDirection] = useState<'entry' | 'exit'>('entry')
   const [snapshotKey, setSnapshotKey] = useState('')
   const [shareUrl, setShareUrl] = useState('')
+  const [preview, setPreview] = useState<{ key: string; url: string } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
@@ -96,6 +97,19 @@ export default function Kiosk({
       }
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function openPreview(key: string) {
+    setNotice(null)
+    const res = await apiFetch(`/snapshots/${key}/share`)
+    if (!res.ok) {
+      setNotice('Capture unavailable')
+      return
+    }
+    const body: unknown = await res.json().catch(() => ({}))
+    if (body !== null && typeof body === 'object' && 'url' in body && typeof body.url === 'string') {
+      setPreview({ key, url: body.url })
     }
   }
 
@@ -220,13 +234,29 @@ export default function Kiosk({
           ) : null}
           <ol className="mt-2 divide-y divide-neutral-200">
             {(log.data ?? []).map((e) => (
-              <li key={e.id} className="flex items-baseline gap-2 py-1 font-ledger text-xs">
+              <li key={e.id} className="flex items-center gap-2 py-1 font-ledger text-xs">
                 <span className="uppercase">{e.direction}</span>
                 <span>{e.method === 'press_card' ? 'card' : 'manual'}</span>
+                {e.snapshot_key ? (
+                  <button
+                    onClick={() => openPreview(e.snapshot_key)}
+                    className="border border-ink px-1 uppercase"
+                  >
+                    Photo
+                  </button>
+                ) : null}
                 <span className="ml-auto">{new Date(e.recorded_at).toLocaleTimeString()}</span>
               </li>
             ))}
           </ol>
+          {preview ? (
+            <div className="mt-2 border-2 border-signal bg-white p-2">
+              <img src={preview.url} alt={`Gate capture ${preview.key}`} className="max-h-64 w-auto" />
+              <button onClick={() => setPreview(null)} className="mt-1 border border-ink px-2 py-1 uppercase">
+                Close
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </section>
