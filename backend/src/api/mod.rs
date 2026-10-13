@@ -2,6 +2,7 @@ mod auth;
 pub use auth::require_permission;
 mod paging;
 pub mod rate_limit;
+mod request_id;
 mod routes_auth;
 mod routes_kyc;
 mod routes_sites;
@@ -13,7 +14,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use self::routes_auth::{list_users, login, me, refresh};
+use self::routes_auth::{list_users, login, logout, logout_all, me, refresh};
 use self::routes_forensics::{
     create_incident, enroll_embedding, list_incidents, search_embeddings, site_heatmap,
 };
@@ -50,6 +51,8 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/auth/me", get(me))
+        .route("/auth/logout", post(logout))
+        .route("/auth/logout/all", post(logout_all))
         .route("/users", get(list_users))
         .route("/sites", get(list_sites).post(create_site))
         .route("/sites/:site_id/gates", get(list_gates).post(create_gate))
@@ -69,6 +72,7 @@ pub fn router(state: AppState) -> Router {
         .merge(kyc_submit)
         .merge(auth)
         .merge(refresh)
+        .layer(axum::middleware::from_fn(request_id::request_id))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

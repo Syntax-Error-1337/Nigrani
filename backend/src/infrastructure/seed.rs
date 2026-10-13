@@ -6,7 +6,16 @@ use crate::infrastructure::auth::hash_password;
 
 /// Seed one login per canonical role (dev only, password `password`).
 /// Idempotent: existing usernames are left untouched.
+/// Guard: refuses in production unless `SEED_BOOTSTRAP=true`, so a prod
+/// database never gains well-known credentials by accident.
 pub async fn seed_users(pool: &PgPool) -> AppResult<()> {
+    if std::env::var("APP_ENV").as_deref() == Ok("production")
+        && std::env::var("SEED_BOOTSTRAP").as_deref() != Ok("true")
+    {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "refusing to seed default credentials with APP_ENV=production (set SEED_BOOTSTRAP=true to override)"
+        )));
+    }
     let accounts: &[(&str, Role)] = &[
         ("superadmin", Role::SuperAdmin),
         ("commander", Role::SiteCommander),

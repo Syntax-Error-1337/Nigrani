@@ -143,6 +143,37 @@ pub async fn refresh(
     }))
 }
 
+/// Logout: revoke the presented refresh token. Idempotent — unknown tokens
+/// still return 200 so retries are safe.
+pub async fn logout(
+    State(state): State<AppState>,
+    Json(body): Json<RefreshBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    let stored = hex_digest(&body.refresh_token);
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL")
+        .bind(&stored)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    Ok(Json(serde_json::json!({ "logged_out": true })))
+}
+
+/// Logout-all: revoke every live refresh token for the caller (kills sibling
+/// sessions). Access JWTs remain valid until their 15-min expiry.
+pub async fn logout_all(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<serde_json::Value>> {
+    let n = sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?
+        .rows_affected();
+    tracing::info!(user_id = %user.id, revoked = n, "all sessions revoked");
+    Ok(Json(serde_json::json!({ "logged_out": true, "sessions_revoked": n })))
+}
+
 pub async fn me(AuthUser(user): AuthUser) -> Json<MeResponse> {
     Json(MeResponse { id: user.id, username: user.username, role: user.role })
 }

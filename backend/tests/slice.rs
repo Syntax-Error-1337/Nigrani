@@ -742,3 +742,90 @@ async fn auth_endpoints_rate_limited() {
     }
     assert!(limited, "expected 429 within 25 rapid logins");
 }
+
+#[tokio::test]
+async fn logout_revokes_token_and_family() {
+    let srv = TestServer::spawn().await;
+    // Two sessions for the same user.
+    let first: Value = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": "gate", "password": "password" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let second: Value = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": "gate", "password": "password" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let r1 = first["refresh_token"].as_str().unwrap().to_owned();
+    let r2 = second["refresh_token"].as_str().unwrap().to_owned();
+    let access = second["access_token"].as_str().unwrap().to_owned();
+
+    // Single logout kills only r1.
+    let res = srv
+        .client
+        .post(format!("{}/auth/logout", srv.base))
+        .json(&json!({ "refresh_token": r1 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let res = srv
+        .client
+        .post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({ "refresh_token": r1 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+
+    // Logout-all kills r2 too.
+    let res = srv
+        .client
+        .post(format!("{}/auth/logout/all", srv.base))
+        .bearer_auth(&access)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let res = srv
+        .client
+        .post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({ "refresh_token": r2 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+}
+
+#[tokio::test]
+async fn error_responses_carry_request_id() {
+    let srv = TestServer::spawn().await;
+    let res = srv
+        .client
+        .get(format!("{}/sites", srv.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    let header_id = res
+        .headers()
+        .get("x-request-id")
+        .expect("request-id header")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["request_id"], header_id);
+    assert!(body["error"].is_string());
+}
