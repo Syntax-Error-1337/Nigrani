@@ -11,8 +11,9 @@ interface AuditEntry {
   detail: unknown
 }
 
-export default function AuditTrail({ siteId }: { siteId: string | null }) {
+export default function AuditTrail({ siteId, global }: { siteId: string | null; global?: boolean }) {
   const [rows, setRows] = useState<AuditEntry[] | null>(null)
+  const [scope, setScope] = useState<'site' | 'all'>(global === true ? 'all' : 'site')
   const [verdict, setVerdict] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -51,6 +52,14 @@ export default function AuditTrail({ siteId }: { siteId: string | null }) {
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
         <h2 className="font-display text-2xl uppercase">Audit trail</h2>
+        {global === true ? (
+          <button
+            onClick={() => setScope(scope === 'all' ? 'site' : 'all')}
+            className="border border-ink px-3 py-1 font-ledger text-xs uppercase"
+          >
+            {scope === 'all' ? 'Site scope' : 'Global scope'}
+          </button>
+        ) : null}
         <button onClick={load} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
           Load trail
         </button>

@@ -196,7 +196,7 @@ export default function Dashboard() {
           <ForensicBench siteId={activeSiteId} />
         )}
         {(user.role === 'SuperAdmin' || user.role === 'SiteCommander') && (
-          <AuditTrail siteId={activeSiteId} />
+          <AuditTrail siteId={activeSiteId} global={user.role === 'SuperAdmin'} />
         )}
 
         {canWrite && activeSiteId ? (

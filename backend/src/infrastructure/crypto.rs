@@ -62,9 +62,19 @@ impl TemplateCrypto {
     }
 
     pub fn decrypt(&self, envelope: &str) -> AppResult<String> {
-        let b64 = envelope
-            .strip_prefix(PREFIX)
-            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown ciphertext version")))?;
+        // Legacy fallback: rows written before encryption went live hold
+        // plaintext. They pass through with a warning so reads keep working;
+        // all new writes are envelopes. (A backfill would need the key at
+        // migration time — recorded out of scope.)
+        let Some(b64) = envelope.strip_prefix(PREFIX) else {
+            // A `vN:`-shaped value that is NOT v1 is a version mismatch, never
+            // legacy data — fail closed so future envelopes can't downgrade.
+            if envelope.len() > 3 && envelope.as_bytes()[0] == b'v' && envelope.as_bytes()[3] == b':' {
+                return Err(AppError::Internal(anyhow::anyhow!("unsupported ciphertext version")));
+            }
+            tracing::warn!("decrypting legacy plaintext row; re-submit to encrypt");
+            return Ok(envelope.to_owned());
+        };
         let blob = base64::engine::general_purpose::STANDARD
             .decode(b64)
             .map_err(|_| AppError::Internal(anyhow::anyhow!("bad ciphertext encoding")))?;
