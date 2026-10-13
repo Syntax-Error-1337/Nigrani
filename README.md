@@ -30,6 +30,7 @@ Gate kiosk: sign in as `gate`, pick a site and gate post.
 - `POST /kyc/applications/:id/decide` `{decision: approved|rejected}` —
   decided rows immutable (`409` on re-decide)
 - `GET /kyc/applications/:id/press-card` → HMAC-signed card payload
+- `GET /kyc/applications/:id/press-card.png` → QR image of the payload
   (paste into any QR generator for gate scans)
 - `POST /kyc/verify` → `{valid, application_id}` card check for gate roles
 - `POST /sites/:site_id/gates/:gate_id/events` (needs `entries:write`) →
