@@ -1,7 +1,7 @@
 # Nigrani
 
 Protest-site access management: RBAC API (Rust/axum) + operations console
-(Vite/React). Phase 1 core slice.
+(Vite/React). Shipped: Phase 1 core + Phase 2 press KYC.
 
 ## Quick start
 
@@ -16,20 +16,47 @@ cd frontend && npm install && npm run dev           # :5173
 Seeded logins (password `password`): `superadmin`, `commander`,
 `gate`, `verifier`, `analyst`.
 
+Public press accreditation (no login): `http://localhost:5173/press`.
+
 ## API
 
 - `GET /health` → `ok`
 - `POST /auth/login` `{username, password}` → access JWT + rotating refresh
-- `POST /auth/refresh` `{refresh_token}` → fresh pair, old token revoked
+- `POST /auth/refresh` `{refresh_token}` → fresh pair, old token revoked;
+  replaying a revoked token burns the whole session family (`401 reused`)
 - `GET /auth/me`, `GET /users` (needs `users:read`)
 - `GET/POST /sites`, `GET/POST /sites/:site_id/gates`
+- `POST /kyc/applications` (public, 10/min per IP) → pending application
+- `GET /kyc/applications?status=` (needs `kyc:review`) → reviewer queue
+- `POST /kyc/applications/:id/decide` `{decision: approved|rejected}` —
+  decided rows immutable (`409` on re-decide)
+- `GET /kyc/applications/:id/press-card` → HMAC-signed card payload
+  (paste into any QR generator for gate scans)
+- `POST /kyc/verify` → `{valid, application_id}` card check for gate roles
 
 Roles: SuperAdmin, SiteCommander, GateOperator, VerificationOfficer,
 ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 
+## Tests
+
+```sh
+docker compose up -d db
+cd backend && cargo test        # 6 integration tests (live DB)
+cargo clippy --all-targets -- -D warnings
+```
+
 ## Layout
 
 - `backend/src/{api,core,domain,infrastructure}` + `backend/migrations`
+- `backend/tests/slice.rs` — RBAC denial, KYC roundtrip, reuse burn,
+  rate limit, input validation
 - `frontend/src` — `App.tsx` routes, `Login.tsx`, `Dashboard.tsx`,
-  `session.ts` (zustand), `api.ts` (tanstack-query)
+  `PressApply.tsx`, `ReviewDesk.tsx`, `session.ts` (zustand),
+  `api.ts` (tanstack-query)
 - `docs/SCOPE.md` — slice scope and manual verification steps
+
+## Out of scope (later phases)
+
+- Photo/fingerprint object storage (Phase 3, S3/MinIO)
+- QR image rendering (payload returned; use any QR generator)
+- Shared rate-limit quota across replicas (per-instance counters)
