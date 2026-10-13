@@ -8,15 +8,30 @@ interface SearchHit {
   distance: number
 }
 
-interface Incident {
+type IncidentStatus = 'open' | 'investigating' | 'resolved' | 'closed'
+
+interface IncidentLink {
   id: string
-  site_id: string | null
-  title: string
-  description: string
-  suspect_application_id: string | null
-  created_by: string
-  created_at: string
+  incident_id: string
+  kind: string
+  ref_id: string
+  note: string
+  added_by: string
+  added_at: string
 }
+
+ interface Incident {
+   id: string
+   site_id: string | null
+   title: string
+   description: string
+   suspect_application_id: string | null
+  status: IncidentStatus
+  assigned_to: string | null
+  resolved_at: string | null
+   created_by: string
+   created_at: string
+ }
 
 interface GateHeat {
   gate_id: string
@@ -53,6 +68,11 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
   const [description, setDescription] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
+  const [links, setLinks] = useState<Record<string, IncidentLink[]>>({})
+  const [assignee, setAssignee] = useState<Record<string, string>>({})
+  const [linkKind, setLinkKind] = useState<Record<string, string>>({})
+  const [linkRef, setLinkRef] = useState<Record<string, string>>({})
+  const [linkNote, setLinkNote] = useState<Record<string, string>>({})
 
   async function search() {
     setNotice(null)
@@ -85,7 +105,6 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
     const res = await apiFetch(`/sites/${siteId}/heatmap`)
     if (res.ok) setHeat((await res.json()) as GateHeat[])
   }
-
   async function fileIncident(e: React.FormEvent) {
     e.preventDefault()
     setNotice(null)
@@ -108,6 +127,76 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
     setOk('Incident filed')
     loadIncidents()
   }
+
+  const NEXT: Record<IncidentStatus, IncidentStatus[]> = {
+    open: ['investigating'],
+    investigating: ['resolved'],
+    resolved: ['closed'],
+    closed: ['investigating'],
+  }
+
+  async function transition(id: string, status: IncidentStatus) {
+    if (!siteId) return
+    setNotice(null)
+    const res = await apiFetch(`/sites/${siteId}/incidents/${id}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    })
+    if (!res.ok) {
+      setNotice(apiError(await res.json().catch(() => ({})), 'Transition rejected'))
+      return
+    }
+    setOk(`Incident → ${status}`)
+    loadIncidents()
+  }
+
+  async function assign(id: string) {
+    if (!siteId) return
+    const user_id = (assignee[id] ?? '').trim()
+    if (!user_id) {
+      setNotice('Paste an assignee user id first')
+      return
+    }
+    setNotice(null)
+    const res = await apiFetch(`/sites/${siteId}/incidents/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id }),
+    })
+    if (!res.ok) {
+      setNotice(apiError(await res.json().catch(() => ({})), 'Assign rejected'))
+      return
+    }
+    setOk('Case assigned')
+    loadIncidents()
+  }
+
+  async function loadLinks(id: string) {
+    if (!siteId) return
+    const res = await apiFetch(`/sites/${siteId}/incidents/${id}/links`)
+    if (res.ok) {
+      const rows = (await res.json()) as IncidentLink[]
+      setLinks((prev) => ({ ...prev, [id]: rows }))
+    }
+  }
+
+  async function addLink(id: string) {
+    if (!siteId) return
+    const kind = linkKind[id] ?? 'note'
+    const ref_id = (linkRef[id] ?? '').trim()
+    const note = (linkNote[id] ?? '').trim()
+    setNotice(null)
+    const res = await apiFetch(`/sites/${siteId}/incidents/${id}/links`, {
+      method: 'POST',
+      body: JSON.stringify({ kind, ref_id, note }),
+    })
+    if (!res.ok) {
+      setNotice(apiError(await res.json().catch(() => ({})), 'Link rejected'))
+      return
+    }
+    setOk('Evidence attached')
+    loadLinks(id)
+  }
+
 
   return (
     <section className="mt-8">
@@ -172,9 +261,66 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
           </button>
           <ol className="mt-2 divide-y divide-neutral-200">
             {(incidents ?? []).map((i) => (
-              <li key={i.id} className="py-1 text-sm">
-                <span className="font-display uppercase">{i.title}</span>
+              <li key={i.id} className="py-2 text-sm">
+                <span className="font-display uppercase">{i.title}</span>{' '}
+                <span className="border border-ink px-1 font-ledger text-[11px] uppercase">{i.status}</span>
+                {i.assigned_to ? <span className="font-ledger text-xs"> → {i.assigned_to.slice(0, 8)}</span> : null}
                 {i.description ? <span className="text-neutral-500"> — {i.description}</span> : null}
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {(NEXT[i.status] ?? []).map((s) => (
+                    <button key={s} onClick={() => transition(i.id, s)} className="border border-ink px-2 py-0.5 font-ledger text-[11px] uppercase">
+                      → {s}
+                    </button>
+                  ))}
+                  <button onClick={() => loadLinks(i.id)} className="border border-ink px-2 py-0.5 font-ledger text-[11px] uppercase">
+                    Links ({(links[i.id] ?? []).length})
+                  </button>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <input
+                    className="border border-ink px-2 py-0.5 font-ledger text-xs"
+                    placeholder="assignee user id"
+                    value={assignee[i.id] ?? ''}
+                    onChange={(e) => setAssignee((p) => ({ ...p, [i.id]: e.target.value }))}
+                  />
+                  <button onClick={() => assign(i.id)} className="bg-ink px-2 py-0.5 font-ledger text-[11px] uppercase text-paper">
+                    Assign
+                  </button>
+                </div>
+                {(links[i.id] ?? []).length > 0 ? (
+                  <ol className="mt-1 font-ledger text-xs">
+                    {(links[i.id] ?? []).map((l) => (
+                      <li key={l.id}>[{l.kind}] {l.ref_id} {l.note}</li>
+                    ))}
+                  </ol>
+                ) : null}
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <select
+                    className="border border-ink px-1 py-0.5 font-ledger text-xs"
+                    value={linkKind[i.id] ?? 'note'}
+                    onChange={(e) => setLinkKind((p) => ({ ...p, [i.id]: e.target.value }))}
+                  >
+                    <option value="note">note</option>
+                    <option value="entry">entry</option>
+                    <option value="embedding">embedding</option>
+                    <option value="snapshot">snapshot</option>
+                  </select>
+                  <input
+                    className="border border-ink px-2 py-0.5 font-ledger text-xs"
+                    placeholder="ref id / key"
+                    value={linkRef[i.id] ?? ''}
+                    onChange={(e) => setLinkRef((p) => ({ ...p, [i.id]: e.target.value }))}
+                  />
+                  <input
+                    className="border border-ink px-2 py-0.5 font-ledger text-xs"
+                    placeholder="note"
+                    value={linkNote[i.id] ?? ''}
+                    onChange={(e) => setLinkNote((p) => ({ ...p, [i.id]: e.target.value }))}
+                  />
+                  <button onClick={() => addLink(i.id)} className="border border-ink px-2 py-0.5 font-ledger text-[11px] uppercase">
+                    Attach
+                  </button>
+                </div>
               </li>
             ))}
           </ol>

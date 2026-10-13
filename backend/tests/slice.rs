@@ -1566,3 +1566,175 @@ async fn provisioning_lifecycle() {
         .unwrap();
     assert_eq!(res.status(), 200);
 }
+
+#[tokio::test]
+async fn incident_lifecycle_transitions_assign_links() {
+    let srv = TestServer::spawn().await;
+    let analyst = srv.login("analyst").await;
+    let gate = srv.login("gate").await;
+    let superadmin = srv.login("superadmin").await;
+
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Cases {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+
+    let inc: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "title": "Door forced" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(inc["status"], "open");
+    let iid = inc["id"].as_str().unwrap().to_owned();
+
+    // Illegal jump open -> resolved is a 409, not a silent skip.
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/status", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "status": "resolved" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 409);
+
+    // Full chain open -> investigating -> resolved -> closed.
+    for want in ["investigating", "resolved", "closed"] {
+        let got: Value = srv
+            .client
+            .post(format!("{}/sites/{site_id}/incidents/{iid}/status", srv.base))
+            .bearer_auth(&analyst)
+            .json(&json!({ "status": want }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(got["status"], want);
+    }
+    // Resolved stamps, close keeps the stamp.
+    let reopened: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/status", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "status": "investigating" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(reopened["status"], "investigating");
+
+    // Assign to someone who holds incidents:write (analyst's own id via /users).
+    let users: Value = srv
+        .client
+        .get(format!("{}/users", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let analyst_id = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "analyst")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let gate_id = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "gate")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let assigned: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/assign", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "user_id": analyst_id }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(assigned["assigned_to"], analyst_id);
+    // Gate staff lack incidents:write: refused, not silently assigned.
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/assign", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "user_id": gate_id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+
+    // Gate role cannot transition either.
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/status", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "status": "investigating" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+
+    // Evidence link round-trip: note + bad-kind rejection.
+    let link: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/links", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "kind": "note", "note": "witness statement taken" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(link["kind"], "note");
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents/{iid}/links", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "kind": "cctv" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+    let links: Value = srv
+        .client
+        .get(format!("{}/sites/{site_id}/incidents/{iid}/links", srv.base))
+        .bearer_auth(&analyst)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(links.as_array().unwrap().len(), 1);
+}
