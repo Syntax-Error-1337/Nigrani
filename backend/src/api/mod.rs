@@ -3,6 +3,7 @@ pub use auth::require_permission;
 mod routes_audit;
 mod routes_demo;
 mod routes_retention;
+mod routes_users;
 pub mod events;
 mod paging;
 pub mod rate_limit;
@@ -22,6 +23,7 @@ use self::events::events_ws;
 use self::routes_audit::{list_audit, site_audit, verify_audit};
 use self::routes_demo::reset_demo;
 use self::routes_retention::{export_site, list_policies, run_purge, set_policy};
+use self::routes_users::{change_password, create_user, set_active};
 use self::routes_auth::{list_users, login, logout, logout_all, me, refresh};
 use self::routes_forensics::{
     create_incident, enroll_embedding, list_incidents, search_embeddings, site_heatmap,
@@ -62,7 +64,9 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/me", get(me))
         .route("/auth/logout", post(logout))
         .route("/auth/logout/all", post(logout_all))
-        .route("/users", get(list_users))
+        .route("/users", get(list_users).post(create_user))
+        .route("/users/:id/:action", post(set_active))
+        .route("/auth/password", post(change_password))
         .route("/sites", get(list_sites).post(create_site))
         .route("/sites/:site_id/gates", get(list_gates).post(create_gate))
         .route("/kyc/applications", get(list_kyc))

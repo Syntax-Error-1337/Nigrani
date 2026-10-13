@@ -1,0 +1,203 @@
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use super::auth::{require_permission, AuthUser};
+use super::state::AppState;
+use crate::core::{AppError, AppResult};
+use crate::domain::Role;
+use crate::infrastructure::auth::{hash_password, verify_password};
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUser {
+    pub username: String,
+    pub password: String,
+    pub role: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserView {
+    pub id: Uuid,
+    pub username: String,
+    pub role: Role,
+    pub active: bool,
+}
+
+fn valid_username(name: &str) -> bool {
+    (3..=32).contains(&name.len())
+        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+fn valid_password(pw: &str) -> bool {
+    (12..=256).contains(&pw.len())
+}
+
+pub async fn create_user(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(body): Json<CreateUser>,
+) -> AppResult<Json<UserView>> {
+    require_permission(&state, &user, "users:write").await?;
+    if !valid_username(&body.username) {
+        return Err(AppError::BadRequest(
+            "username must be 3-32 chars of [a-z0-9_]".to_owned(),
+        ));
+    }
+    if !valid_password(&body.password) {
+        return Err(AppError::BadRequest("password must be 12-256 chars".to_owned()));
+    }
+    let role = Role::from_name(&body.role)
+        .ok_or_else(|| AppError::BadRequest("unknown role".to_owned()))?;
+    let role_id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM roles WHERE name = $1")
+        .bind(role.as_str())
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let Some(role_id) = role_id else {
+        return Err(AppError::Internal(anyhow::anyhow!("role missing")));
+    };
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        "INSERT INTO users (username, password_hash, role_id) VALUES ($1, $2, $3)
+         RETURNING id",
+    )
+    .bind(&body.username)
+    .bind(hash_password(&body.password)?)
+    .bind(role_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::Database(db) = &e {
+            if db.constraint() == Some("users_username_key") {
+                return AppError::Conflict("username taken".to_owned());
+            }
+        }
+        AppError::Db(e)
+    })?;
+    // Idempotent-by-username would hide mistakes; conflict is explicit.
+    let Some((id,)) = row else {
+        return Err(AppError::Internal(anyhow::anyhow!("user insert failed")));
+    };
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "user.created",
+        "user",
+        Some(id),
+        serde_json::json!({"username": body.username, "role": role.as_str()}),
+    )
+    .await;
+    Ok(Json(UserView { id, username: body.username, role, active: true }))
+}
+
+pub async fn set_active(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((id, action)): Path<(Uuid, String)>,
+) -> AppResult<Json<UserView>> {
+    require_permission(&state, &user, "users:write").await?;
+    let active = match action.as_str() {
+        "deactivate" => false,
+        "reactivate" => true,
+        _ => return Err(AppError::NotFound("unknown user action".to_owned())),
+    };
+    if id == user.id {
+        return Err(AppError::BadRequest("cannot change your own status".to_owned()));
+    }
+    let row: Option<(Uuid, String, String, bool)> = sqlx::query_as(
+        "UPDATE users SET active = $1 WHERE id = $2
+         RETURNING id, username, (SELECT name FROM roles WHERE id = users.role_id), active",
+    )
+    .bind(active)
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some((uid, username, role_name, active)) = row else {
+        return Err(AppError::NotFound("user not found".to_owned()));
+    };
+    // Immediate session kill on deactivate.
+    if !active {
+        sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1")
+            .bind(uid)
+            .execute(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    }
+    let role = Role::from_name(&role_name)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role")))?;
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        if active { "user.reactivated" } else { "user.deactivated" },
+        "user",
+        Some(uid),
+        serde_json::json!({"username": username}),
+    )
+    .await;
+    Ok(Json(UserView { id: uid, username, role, active }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChangePassword {
+    pub current: String,
+    pub new: String,
+}
+
+/// Self-service password change; kills all OTHER sessions.
+pub async fn change_password(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(body): Json<ChangePassword>,
+) -> AppResult<Json<serde_json::Value>> {
+    if !valid_password(&body.new) {
+        return Err(AppError::BadRequest("password must be 12-256 chars".to_owned()));
+    }
+    let hash: Option<(Uuid, String)> =
+        sqlx::query_as("SELECT id, password_hash FROM users WHERE id = $1 AND active")
+            .bind(user.id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    let Some((uid, stored)) = hash else {
+        return Err(AppError::Unauthorized("invalid credentials".to_owned()));
+    };
+    if verify_password(&stored, &body.current).is_err() {
+        super::routes_audit::record(
+            &state.pool,
+            Some(uid),
+            "password.change_failed",
+            "user",
+            Some(uid),
+            serde_json::json!({}),
+        )
+        .await;
+        return Err(AppError::Unauthorized("invalid credentials".to_owned()));
+    }
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(hash_password(&body.new)?)
+        .bind(uid)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let n = sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(uid)
+    .execute(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .rows_affected();
+    super::routes_audit::record(
+        &state.pool,
+        Some(uid),
+        "password.changed",
+        "user",
+        Some(uid),
+        serde_json::json!({"sessions_revoked": n}),
+    )
+    .await;
+    Ok(Json(serde_json::json!({ "changed": true })))
+}

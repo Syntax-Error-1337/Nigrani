@@ -41,6 +41,7 @@ struct DbUser {
     username: String,
     password_hash: String,
     role: String,
+    active: bool,
 }
 
 pub async fn login(
@@ -54,7 +55,7 @@ pub async fn login(
         return Err(AppError::BadRequest("username or password too long".to_owned()));
     }
     let row: Option<DbUser> = sqlx::query_as::<_, DbUser>(
-        r#"SELECT u.id, u.username, u.password_hash, r.name AS role
+        r#"SELECT u.id, u.username, u.password_hash, r.name AS role, u.active
            FROM users u JOIN roles r ON r.id = u.role_id
            WHERE u.username = $1"#,
     )
@@ -66,6 +67,11 @@ pub async fn login(
         super::routes_audit::record(&state.pool, None, "login.failed", "session", None, serde_json::json!({"username": body.username})).await;
         return Err(AppError::Unauthorized("invalid credentials".to_owned()));
     };
+    // Inactive accounts fail exactly like bad credentials (no oracle).
+    if !row.active {
+        super::routes_audit::record(&state.pool, Some(row.id), "login.failed", "session", None, serde_json::json!({"username": body.username, "inactive": true})).await;
+        return Err(AppError::Unauthorized("invalid credentials".to_owned()));
+    }
     if let Err(e) = verify_password(&row.password_hash, &body.password) {
         super::routes_audit::record(&state.pool, Some(row.id), "login.failed", "session", None, serde_json::json!({"username": body.username})).await;
         return Err(e);
@@ -124,7 +130,7 @@ pub async fn refresh(
         .await
         .map_err(AppError::Db)?;
     let row: DbUser = sqlx::query_as::<_, DbUser>(
-        r#"SELECT u.id, u.username, u.password_hash, r.name AS role
+        r#"SELECT u.id, u.username, u.password_hash, r.name AS role, u.active
            FROM users u JOIN roles r ON r.id = u.role_id
            WHERE u.id = $1"#,
     )
@@ -132,6 +138,9 @@ pub async fn refresh(
     .fetch_one(&state.pool)
     .await
     .map_err(AppError::Db)?;
+    if !row.active {
+        return Err(AppError::Unauthorized("refresh token expired".to_owned()));
+    }
     let role = Role::from_name(&row.role)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role {}", row.role)))?;
     let access_token = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;

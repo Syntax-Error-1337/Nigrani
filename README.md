@@ -24,6 +24,8 @@ Gate kiosk: sign in as `gate`, pick a site and gate post.
 - `POST /auth/refresh` `{refresh_token}` → fresh pair, old token revoked;
   replaying a revoked token burns the whole session family (`401 reused`)
 - `GET /auth/me`, `GET /users` (needs `users:read`)
+- `POST /users`, `POST /users/:id/deactivate|reactivate` (needs `users:write`)
+- `POST /auth/password` (self-service change, kills other sessions)
 - `GET/POST /sites`, `GET/POST /sites/:site_id/gates`
 - `POST /kyc/applications` (public, 10/min per IP) → pending application
 - `GET /kyc/applications?status=` (needs `kyc:review`) → reviewer queue

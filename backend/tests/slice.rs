@@ -1431,3 +1431,138 @@ async fn demo_reset_restores_baseline() {
             .unwrap();
     assert_eq!(genesis.0, 1);
 }
+
+#[tokio::test]
+async fn provisioning_lifecycle() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let gate = srv.login("gate").await;
+
+    // Gate role cannot provision.
+    let res = srv
+        .client
+        .post(format!("{}/users", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "username": "nope", "password": "long-enough-pw", "role": "GateOperator" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+    // Weak password rejected.
+    let res = srv
+        .client
+        .post(format!("{}/users", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "username": "weak", "password": "short", "role": "GateOperator" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+
+    // Provision → login works.
+    let name = format!("op_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let created: Value = srv
+        .client
+        .post(format!("{}/users", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "username": name, "password": "fresh-operator-pw", "role": "GateOperator" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let uid = created["id"].as_str().unwrap().to_owned();
+    let session: Value = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": name, "password": "fresh-operator-pw" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let refresh = session["refresh_token"].as_str().unwrap().to_owned();
+
+    // Deactivate → login + refresh die; reactivate → login works.
+    srv.client
+        .post(format!("{}/users/{uid}/deactivate", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap();
+    for payload in [
+        json!({ "username": name, "password": "fresh-operator-pw" }),
+    ] {
+        let res = srv
+            .client
+            .post(format!("{}/auth/login", srv.base))
+            .json(&payload)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 401);
+    }
+    let res = srv
+        .client
+        .post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({ "refresh_token": refresh }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    srv.client
+        .post(format!("{}/users/{uid}/reactivate", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap();
+    let res = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": name, "password": "fresh-operator-pw" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    // Password change: wrong current 401s; correct rotates + kills old refresh.
+    let me: Value = res.json().await.unwrap();
+    let my_token = me["access_token"].as_str().unwrap().to_owned();
+    let my_refresh = me["refresh_token"].as_str().unwrap().to_owned();
+    let res = srv
+        .client
+        .post(format!("{}/auth/password", srv.base))
+        .bearer_auth(&my_token)
+        .json(&json!({ "current": "wrong-pw", "new": "rotated-operator-pw" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    let res = srv
+        .client
+        .post(format!("{}/auth/password", srv.base))
+        .bearer_auth(&my_token)
+        .json(&json!({ "current": "fresh-operator-pw", "new": "rotated-operator-pw" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let res = srv
+        .client
+        .post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({ "refresh_token": my_refresh }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    let res = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": name, "password": "rotated-operator-pw" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+}

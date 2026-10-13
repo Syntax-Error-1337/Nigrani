@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useDebounced } from './useDebounced'
 import AuditTrail from './AuditTrail'
+import OperatorsPanel, { PasswordDialog } from './OperatorsPanel'
 import RetentionPanel from './RetentionPanel'
 import ForensicBench from './ForensicBench'
 import Kiosk from './Kiosk'
@@ -219,6 +220,8 @@ export default function Dashboard() {
           <AuditTrail siteId={activeSiteId} global={user.role === 'SuperAdmin'} />
         )}
         {user.role === 'SuperAdmin' && <RetentionPanel />}
+        {user.role === 'SuperAdmin' && <OperatorsPanel />}
+        <PasswordDialog />
 
         {canWrite && activeSiteId ? (
             <form onSubmit={createGate} className="mt-4 flex flex-wrap items-end gap-3">
