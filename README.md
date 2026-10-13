@@ -6,7 +6,7 @@ Protest-site access management: RBAC API (Rust/axum) + operations console
 ## Quick start
 
 ```sh
-docker compose up -d db s3
+docker compose up -d db s3   # db is the pgvector image
 cd backend && cp .env.example .env && cargo run     # :8080
 cd frontend && npm install && npm run dev           # :5173
 ```
@@ -36,6 +36,9 @@ Gate kiosk: sign in as `gate`, pick a site and gate post.
   screening event; card payloads HMAC-verified
 - `GET /sites/:site_id/gates/:gate_id/log` → recent crossings
 - `POST /snapshots` (JPEG ≤ 5MB) / `GET /snapshots/:key` → S3 snapshots
+- `POST /forensics/embeddings` (needs `forensics:search`) → store 512-d vector
+- `POST /forensics/search` → cosine-ranked matches `{id, distance}`
+- `GET/POST /sites/:site_id/incidents`, `GET /sites/:site_id/heatmap`
 
 Roles: SuperAdmin, SiteCommander, GateOperator, VerificationOfficer,
 ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
@@ -44,7 +47,7 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 
 ```sh
 docker compose up -d db
-cd backend && cargo test        # 6 integration tests (live DB)
+cd backend && cargo test        # 10 integration tests (live DB)
 cargo clippy --all-targets -- -D warnings
 ```
 
