@@ -1,6 +1,7 @@
 mod auth;
 pub use auth::require_permission;
 mod routes_audit;
+mod routes_retention;
 pub mod events;
 mod paging;
 pub mod rate_limit;
@@ -18,6 +19,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use self::events::events_ws;
 use self::routes_audit::{list_audit, site_audit, verify_audit};
+use self::routes_retention::{export_site, list_policies, run_purge, set_policy};
 use self::routes_auth::{list_users, login, logout, logout_all, me, refresh};
 use self::routes_forensics::{
     create_incident, enroll_embedding, list_incidents, search_embeddings, site_heatmap,
@@ -77,6 +79,10 @@ pub fn router(state: AppState) -> Router {
         .route("/audit", get(list_audit))
         .route("/audit/verify", get(verify_audit))
         .route("/sites/:site_id/audit", get(site_audit))
+        .route("/admin/retention/policies", get(list_policies))
+        .route("/admin/retention/policies/:entity", post(set_policy))
+        .route("/admin/retention/run", post(run_purge))
+        .route("/sites/:site_id/export", get(export_site))
         .merge(kyc_submit)
         .merge(auth)
         .merge(refresh)

@@ -1095,3 +1095,98 @@ async fn audit_trail_records_and_verifies() {
         .unwrap();
     assert_eq!(verdict["ok"], true);
 }
+
+#[tokio::test]
+async fn retention_purge_and_export() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let gate = srv.login("gate").await;
+
+    // Admin endpoints gated.
+    let res = srv
+        .client
+        .get(format!("{}/admin/retention/policies", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+
+    // Tune embeddings window to 1 day, then plant an old + a fresh row.
+    let res = srv
+        .client
+        .post(format!("{}/admin/retention/policies/face_embeddings", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "retain_days": 1 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let state = test_state().await;
+    let old_vec = format!("[{}]", vec!["0.5"; 512].join(","));
+    sqlx::query(
+        "INSERT INTO face_embeddings (embedding, captured_at) VALUES ($1::vector, now() - interval '5 days')",
+    )
+    .bind(&old_vec)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO face_embeddings (embedding) VALUES ($1::vector)")
+        .bind(&old_vec)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    // Purge removes only the expired row and reports counts.
+    let report: Value = srv
+        .client
+        .post(format!("{}/admin/retention/run", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(report["purged"]["face_embeddings"], 1);
+    let remaining: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM face_embeddings WHERE captured_at < now() - interval '1 day'")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(remaining.0, 0);
+
+    // Restore the default window so other runs are unaffected.
+    srv.client
+        .post(format!("{}/admin/retention/policies/face_embeddings", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "retain_days": 180 }))
+        .send()
+        .await
+        .unwrap();
+
+    // Export shape on a fresh site.
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Export {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let export: Value = srv
+        .client
+        .get(format!("{}/sites/{site_id}/export", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(export["site_id"], site_id);
+    assert!(export["gates"].is_array() && export["entry_logs"].is_array() && export["incidents"].is_array());
+}

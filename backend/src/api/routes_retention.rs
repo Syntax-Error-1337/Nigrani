@@ -1,0 +1,180 @@
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::{Deserialize, Serialize};
+
+use super::auth::{require_permission, AuthUser};
+use super::state::AppState;
+use crate::core::{AppError, AppResult};
+use crate::domain::Role;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetentionPolicy {
+    pub entity: String,
+    pub retain_days: i32,
+}
+
+fn superadmin(user: &crate::domain::User) -> AppResult<()> {
+    if user.role != Role::SuperAdmin {
+        return Err(AppError::Forbidden("retention controls are SuperAdmin-only".to_owned()));
+    }
+    Ok(())
+}
+
+pub async fn list_policies(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<Vec<RetentionPolicy>>> {
+    superadmin(&user)?;
+    let rows: Vec<(String, i32)> =
+        sqlx::query_as("SELECT entity, retain_days FROM retention_policies ORDER BY entity")
+            .fetch_all(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    Ok(Json(
+        rows.into_iter().map(|(entity, retain_days)| RetentionPolicy { entity, retain_days }).collect(),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetPolicy {
+    pub retain_days: i32,
+}
+
+pub async fn set_policy(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(entity): Path<String>,
+    Json(body): Json<SetPolicy>,
+) -> AppResult<Json<RetentionPolicy>> {
+    superadmin(&user)?;
+    if body.retain_days < 0 || body.retain_days > 3650 {
+        return Err(AppError::BadRequest("retain_days must be 0..3650".to_owned()));
+    }
+    let row: Option<(String, i32)> = sqlx::query_as(
+        "UPDATE retention_policies SET retain_days = $1 WHERE entity = $2
+         RETURNING entity, retain_days",
+    )
+    .bind(body.retain_days)
+    .bind(&entity)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some((entity, retain_days)) = row else {
+        return Err(AppError::NotFound("unknown retention entity".to_owned()));
+    };
+    Ok(Json(RetentionPolicy { entity, retain_days }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct PurgeReport {
+    pub purged: std::collections::HashMap<String, i64>,
+}
+
+/// Purge expired rows per policy, dependency order first (children before
+/// parents so FKs never break). The run itself is audit-logged.
+pub async fn run_purge(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<PurgeReport>> {
+    superadmin(&user)?;
+    let policies: Vec<(String, i32)> =
+        sqlx::query_as("SELECT entity, retain_days FROM retention_policies")
+            .fetch_all(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    let window = |entity: &str| {
+        policies.iter().find(|(e, _)| e == entity).map(|(_, d)| *d).unwrap_or(365)
+    };
+    let mut purged = std::collections::HashMap::new();
+    // Children first: embeddings → logs → applications → sessions.
+    purged.insert("face_embeddings".into(), purge_older_than(&state, "face_embeddings", "captured_at", window("face_embeddings")).await?);
+    purged.insert("entry_logs".into(), purge_older_than(&state, "entry_logs", "recorded_at", window("entry_logs")).await?);
+    purged.insert("kyc_applications".into(), purge_older_than(&state, "kyc_applications", "submitted_at", window("kyc_applications")).await?);
+    purged.insert(
+        "refresh_tokens".into(),
+        purge_older_than(&state, "refresh_tokens", "created_at", window("refresh_tokens")).await?,
+    );
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "retention.purge",
+        "retention",
+        None,
+        serde_json::json!({ "purged": purged }),
+    )
+    .await;
+    Ok(Json(PurgeReport { purged }))
+}
+
+async fn purge_older_than(
+    state: &AppState,
+    table: &str,
+    at_column: &str,
+    retain_days: i32,
+) -> AppResult<i64> {
+    if retain_days <= 0 {
+        return Ok(0);
+    }
+    // Table/column are internal constants (not user input); format is safe.
+    let n = sqlx::query(&format!(
+        "DELETE FROM {table} WHERE {at_column} < now() - ($1 || ' days')::interval"
+    ))
+    .bind(retain_days.to_string())
+    .execute(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .rows_affected() as i64;
+    tracing::info!(table, purged = n, "retention purge");
+    Ok(n)
+}
+
+/// Site data-portability export: gates + recent logs + incidents as JSON.
+pub async fn export_site(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(site_id): Path<uuid::Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_permission(&state, &user, "sites:read").await?;
+    let gates: Vec<(uuid::Uuid, String, String)> = sqlx::query_as(
+        "SELECT id, name, direction FROM gates WHERE site_id = $1 ORDER BY name",
+    )
+    .bind(site_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let logs: Vec<(uuid::Uuid, uuid::Uuid, String, String, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            "SELECT l.id, l.gate_id, l.direction, l.method, l.recorded_at
+             FROM entry_logs l JOIN gates g ON g.id = l.gate_id
+             WHERE g.site_id = $1 ORDER BY l.recorded_at DESC LIMIT 500",
+        )
+        .bind(site_id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let incidents: Vec<(uuid::Uuid, String, String, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            "SELECT id, title, description, created_at FROM incidents
+             WHERE site_id = $1 ORDER BY created_at DESC LIMIT 200",
+        )
+        .bind(site_id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    Ok(Json(serde_json::json!({
+        "site_id": site_id,
+        "exported_at": chrono::Utc::now(),
+        "gates": gates.iter().map(|(id, name, direction)| serde_json::json!({
+            "id": id, "name": name, "direction": direction,
+        })).collect::<Vec<_>>(),
+        "entry_logs": logs.iter().map(|(id, gate_id, direction, method, at)| serde_json::json!({
+            "id": id, "gate_id": gate_id, "direction": direction,
+            "method": method, "recorded_at": at,
+        })).collect::<Vec<_>>(),
+        "incidents": incidents.iter().map(|(id, title, description, at)| serde_json::json!({
+            "id": id, "title": title, "description": description, "created_at": at,
+        })).collect::<Vec<_>>(),
+    })))
+}

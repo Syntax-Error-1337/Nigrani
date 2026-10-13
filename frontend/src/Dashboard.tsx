@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import AuditTrail from './AuditTrail'
+import RetentionPanel from './RetentionPanel'
 import ForensicBench from './ForensicBench'
 import Kiosk from './Kiosk'
 import ReviewDesk from './ReviewDesk'
@@ -198,6 +199,7 @@ export default function Dashboard() {
         {(user.role === 'SuperAdmin' || user.role === 'SiteCommander') && (
           <AuditTrail siteId={activeSiteId} global={user.role === 'SuperAdmin'} />
         )}
+        {user.role === 'SuperAdmin' && <RetentionPanel />}
 
         {canWrite && activeSiteId ? (
             <form onSubmit={createGate} className="mt-4 flex flex-wrap items-end gap-3">
