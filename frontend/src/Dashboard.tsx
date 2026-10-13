@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ReviewDesk from './ReviewDesk'
 import { useGates, useSites } from './api'
 import { apiFetch, useSession, type Role } from './session'
 
@@ -17,7 +18,7 @@ const ROLE_PANELS: Record<Role, { heading: string; brief: string }> = {
   },
   VerificationOfficer: {
     heading: 'Press review desk',
-    brief: 'Media access requests land here for inspection and approval. (Phase 2 builds the queue.)',
+    brief: 'Media access requests land here for inspection and approval.',
   },
   ForensicAnalyst: {
     heading: 'Forensic bench',
@@ -176,7 +177,9 @@ export default function Dashboard() {
               ))}
             </ol>
           )}
-          {canWrite && activeSiteId ? (
+        {(user.role === 'VerificationOfficer' || user.role === 'SuperAdmin') && <ReviewDesk />}
+
+        {canWrite && activeSiteId ? (
             <form onSubmit={createGate} className="mt-4 flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-sm">
                 New gate

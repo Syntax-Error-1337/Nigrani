@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import Dashboard from './Dashboard'
 import Login from './Login'
+import PressApply from './PressApply'
 import { useSession } from './session'
 
 const queryClient = new QueryClient()
@@ -18,6 +19,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/press" element={<PressApply />} />
           <Route
             path="/dashboard"
             element={

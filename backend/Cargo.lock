@@ -1356,6 +1356,7 @@ dependencies = [
  "base64",
  "chrono",
  "dotenvy",
+ "hmac",
  "jsonwebtoken",
  "rand",
  "serde",

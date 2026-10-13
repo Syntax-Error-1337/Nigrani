@@ -1,5 +1,6 @@
 mod auth;
 mod routes_auth;
+mod routes_kyc;
 mod routes_sites;
 pub mod state;
 
@@ -9,6 +10,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use self::routes_auth::{list_users, login, me, refresh};
+use self::routes_kyc::{decide_kyc, list_kyc, press_card, submit_kyc, verify_press_card};
 use self::routes_sites::{create_gate, create_site, list_gates, list_sites};
 use self::state::AppState;
 use crate::core::AppResult;
@@ -26,6 +28,10 @@ pub fn router(state: AppState) -> Router {
         .route("/users", get(list_users))
         .route("/sites", get(list_sites).post(create_site))
         .route("/sites/:site_id/gates", get(list_gates).post(create_gate))
+        .route("/kyc/applications", post(submit_kyc).get(list_kyc))
+        .route("/kyc/applications/:id/decide", post(decide_kyc))
+        .route("/kyc/applications/:id/press-card", get(press_card))
+        .route("/kyc/verify", post(verify_press_card))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

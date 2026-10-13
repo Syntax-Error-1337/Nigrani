@@ -46,3 +46,32 @@ export function useGates(siteId: string | null) {
     enabled: siteId !== null,
   })
 }
+
+export interface KycApplication {
+  id: string
+  full_name: string
+  organization: string
+  document_type: 'aadhaar' | 'pan' | 'press_id'
+  document_number: string
+  photo_url: string
+  status: 'pending' | 'approved' | 'rejected'
+  submitted_at: string
+  decided_at: string | null
+  decided_by: string | null
+  decision_note: string
+}
+
+export interface PressCard {
+  application_id: string
+  full_name: string
+  organization: string
+  issued_at: string
+  signature: string
+}
+
+export function useKycQueue(status: string) {
+  return useQuery({
+    queryKey: ['kyc', status],
+    queryFn: () => getJson<KycApplication[]>(`/kyc/applications?status=${status}`),
+  })
+}

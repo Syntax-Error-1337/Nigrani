@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+pub mod kyc;
+
+pub use kyc::{DocumentType, KycApplication, KycStatus, PressCard};
 
 /// Canonical roles from the system design (stored as TEXT in `roles.name`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
