@@ -198,19 +198,19 @@ pub async fn me(AuthUser(user): AuthUser) -> Json<MeResponse> {
 pub async fn list_users(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
-) -> AppResult<Json<Vec<MeResponse>>> {
+) -> AppResult<Json<Vec<super::routes_users::UserView>>> {
     require_permission(&state, &user, "users:read").await?;
-    let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
-        r#"SELECT u.id, u.username, r.name AS role
+    let rows: Vec<(Uuid, String, String, bool)> = sqlx::query_as(
+        r#"SELECT u.id, u.username, r.name AS role, u.active
            FROM users u JOIN roles r ON r.id = u.role_id ORDER BY u.username"#,
     )
     .fetch_all(&state.pool)
     .await
     .map_err(AppError::Db)?;
     let mut out = Vec::with_capacity(rows.len());
-    for (id, username, role_name) in rows {
+    for (id, username, role_name, active) in rows {
         let Some(role) = Role::from_name(&role_name) else { continue };
-        out.push(MeResponse { id, username, role });
+        out.push(super::routes_users::UserView { id, username, role, active });
     }
     Ok(Json(out))
 }
