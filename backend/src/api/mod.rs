@@ -1,4 +1,5 @@
 mod auth;
+pub mod rate_limit;
 mod routes_auth;
 mod routes_kyc;
 mod routes_sites;
@@ -20,6 +21,11 @@ pub async fn health() -> &'static str {
 }
 
 pub fn router(state: AppState) -> Router {
+    // Public pre-registration portal: per-IP fixed window (quota on AppState).
+    let kyc_submit: Router<AppState> = Router::new()
+        .route("/kyc/applications", post(submit_kyc))
+        .route_layer(axum::middleware::from_fn(rate_limit::kyc_limiter))
+        .layer(axum::Extension(state.kyc_limiter.clone()));
     Router::new()
         .route("/health", get(health))
         .route("/auth/login", post(login))
@@ -28,10 +34,11 @@ pub fn router(state: AppState) -> Router {
         .route("/users", get(list_users))
         .route("/sites", get(list_sites).post(create_site))
         .route("/sites/:site_id/gates", get(list_gates).post(create_gate))
-        .route("/kyc/applications", post(submit_kyc).get(list_kyc))
+        .route("/kyc/applications", get(list_kyc))
         .route("/kyc/applications/:id/decide", post(decide_kyc))
         .route("/kyc/applications/:id/press-card", get(press_card))
         .route("/kyc/verify", post(verify_press_card))
+        .merge(kyc_submit)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -44,7 +51,10 @@ pub async fn serve(state: AppState, addr: std::net::SocketAddr) -> AppResult<()>
         .await
         .map_err(|e| anyhow::anyhow!("bind {addr}: {e}"))?;
     tracing::info!(%addr, "serving");
-    axum::serve(listener, app)
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
         .await
         .map_err(|e| anyhow::anyhow!("serve failed: {e}"))?;
     Ok(())

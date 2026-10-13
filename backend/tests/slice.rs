@@ -23,6 +23,7 @@ async fn test_state() -> nigrani::api::state::AppState {
     nigrani::api::state::AppState {
         pool,
         jwt_secret: Arc::<[u8]>::from(b"test-secret".as_slice()),
+        kyc_limiter: nigrani::api::rate_limit::Limiter::kyc(),
     }
 }
 
@@ -38,7 +39,12 @@ impl TestServer {
         let addr = listener.local_addr().unwrap();
         let app = nigrani::api::router(state);
         tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
         });
         let client = reqwest::Client::new();
         let base = format!("http://{addr}");
@@ -197,4 +203,102 @@ async fn kyc_rejects_bad_document_type() {
         .await
         .unwrap();
     assert_eq!(res.status(), 400);
+}
+
+#[tokio::test]
+async fn refresh_reuse_burns_session_family() {
+    let srv = TestServer::spawn().await;
+    // Two independent logins = two live refresh tokens for the same user.
+    let first: Value = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": "analyst", "password": "password" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let second: Value = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": "analyst", "password": "password" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let r1 = first["refresh_token"].as_str().unwrap().to_owned();
+    let r2 = second["refresh_token"].as_str().unwrap().to_owned();
+
+    // Normal rotation of r1 succeeds…
+    let res = srv
+        .client
+        .post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({ "refresh_token": r1 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    // …then replaying the revoked r1 is flagged as reuse…
+    let res = srv
+        .client
+        .post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({ "refresh_token": r1 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], "refresh token reused");
+
+    // …and the untouched r2 is burned too: the whole family is dead.
+    let res = srv
+        .client
+        .post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({ "refresh_token": r2 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+}
+
+#[tokio::test]
+async fn oversized_login_rejected() {
+    let srv = TestServer::spawn().await;
+    let res = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": "x".repeat(65), "password": "password" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+}
+
+#[tokio::test]
+async fn kyc_submit_rate_limited() {
+    let srv = TestServer::spawn().await;
+    let mut limited = false;
+    for i in 0..12 {
+        let res = srv
+            .client
+            .post(format!("{}/kyc/applications", srv.base))
+            .json(&json!({
+                "full_name": format!("Flood {i}"),
+                "document_type": "pan",
+                "document_number": format!("FLOOD-{i}-{}", uuid::Uuid::new_v4()),
+            }))
+            .send()
+            .await
+            .unwrap();
+        if res.status() == 429 {
+            limited = true;
+            break;
+        }
+        assert_eq!(res.status(), 200);
+    }
+    assert!(limited, "expected 429 within 12 rapid submits");
 }

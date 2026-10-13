@@ -8,6 +8,7 @@ use crate::infrastructure::db;
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub jwt_secret: Arc<[u8]>,
+    pub kyc_limiter: super::rate_limit::Limiter,
 }
 
 impl AppState {
@@ -15,12 +16,20 @@ impl AppState {
         dotenvy::dotenv().ok();
         let database_url =
             std::env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL not set"))?;
-        let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev-secret-change-me".into());
+        let jwt_secret = match std::env::var("JWT_SECRET") {
+            Ok(s) if s.len() >= 32 => s,
+            Ok(_) => anyhow::bail!("JWT_SECRET must be at least 32 characters"),
+            Err(_) => {
+                tracing::warn!("JWT_SECRET unset; using dev fallback (do NOT use in production)");
+                "dev-secret-change-me-change-me!!".into()
+            }
+        };
         let pool = db::connect(&database_url).await?;
         db::run_migrations(&pool).await?;
         Ok(Self {
             pool,
             jwt_secret: jwt_secret.into_bytes().into(),
+            kyc_limiter: super::rate_limit::Limiter::kyc(),
         })
     }
 }

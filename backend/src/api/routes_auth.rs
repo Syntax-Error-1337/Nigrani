@@ -50,6 +50,9 @@ pub async fn login(
     if body.username.is_empty() || body.password.is_empty() {
         return Err(AppError::BadRequest("username and password required".to_owned()));
     }
+    if body.username.len() > 64 || body.password.len() > 256 {
+        return Err(AppError::BadRequest("username or password too long".to_owned()));
+    }
     let row: Option<DbUser> = sqlx::query_as::<_, DbUser>(
         r#"SELECT u.id, u.username, u.password_hash, r.name AS role
            FROM users u JOIN roles r ON r.id = u.role_id
@@ -93,8 +96,19 @@ pub async fn refresh(
     let Some((user_id, expires_at, revoked_at)) = rec else {
         return Err(AppError::Unauthorized("invalid refresh token".to_owned()));
     };
-    if revoked_at.is_some() || expires_at < chrono::Utc::now() {
+    if expires_at < chrono::Utc::now() {
         return Err(AppError::Unauthorized("refresh token expired".to_owned()));
+    }
+    // Reuse detection: a revoked token presented again means the family is
+    // compromised — burn every live token for that user and force re-login.
+    if revoked_at.is_some() {
+        sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
+            .bind(user_id)
+            .execute(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+        tracing::warn!(%user_id, "refresh token reuse detected; session family revoked");
+        return Err(AppError::Unauthorized("refresh token reused".to_owned()));
     }
     // Rotation: revoke the presented token, issue a fresh pair.
     sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1")
