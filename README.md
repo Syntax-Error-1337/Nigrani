@@ -36,6 +36,7 @@ Gate kiosk: sign in as `gate`, pick a site and gate post.
   screening event; card payloads HMAC-verified
 - `GET /sites/:site_id/gates/:gate_id/log` → recent crossings
 - `POST /snapshots` (JPEG ≤ 5MB) / `GET /snapshots/:key` → S3 snapshots
+- `GET /events?token=` → WebSocket stream of crossings, KYC decisions, topology
 - `POST /forensics/embeddings` (needs `forensics:search`) → store 512-d vector
 - `POST /forensics/search` → cosine-ranked matches `{id, distance}`
 - `GET/POST /sites/:site_id/incidents`, `GET /sites/:site_id/heatmap`
