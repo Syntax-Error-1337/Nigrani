@@ -5,14 +5,17 @@ mod routes_auth;
 mod routes_kyc;
 mod routes_sites;
 pub mod state;
+mod routes_forensics;
 mod routes_gate;
 
 use axum::routing::{get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-
 use self::routes_auth::{list_users, login, me, refresh};
+use self::routes_forensics::{
+    create_incident, enroll_embedding, list_incidents, search_embeddings, site_heatmap,
+};
 use self::routes_gate::{download_snapshot, gate_log, record_event, upload_snapshot};
 use self::routes_kyc::{decide_kyc, list_kyc, press_card, submit_kyc, verify_press_card};
 use self::routes_sites::{create_gate, create_site, list_gates, list_sites};
@@ -45,6 +48,10 @@ pub fn router(state: AppState) -> Router {
         .route("/sites/:site_id/gates/:gate_id/log", get(gate_log))
         .route("/snapshots", post(upload_snapshot))
         .route("/snapshots/:key", get(download_snapshot))
+        .route("/forensics/embeddings", post(enroll_embedding))
+        .route("/forensics/search", post(search_embeddings))
+        .route("/sites/:site_id/incidents", post(create_incident).get(list_incidents))
+        .route("/sites/:site_id/heatmap", get(site_heatmap))
         .merge(kyc_submit)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

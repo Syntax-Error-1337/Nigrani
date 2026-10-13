@@ -13,6 +13,7 @@ export default defineConfig({
       '/users': 'http://127.0.0.1:8080',
       '/kyc': 'http://127.0.0.1:8080',
       '/snapshots': 'http://127.0.0.1:8080',
+      '/forensics': 'http://127.0.0.1:8080',
     },
   },
 })

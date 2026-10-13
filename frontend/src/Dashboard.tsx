@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ForensicBench from './ForensicBench'
 import Kiosk from './Kiosk'
 import ReviewDesk from './ReviewDesk'
 import { useGates, useSites } from './api'
@@ -23,7 +24,7 @@ const ROLE_PANELS: Record<Role, { heading: string; brief: string }> = {
   },
   ForensicAnalyst: {
     heading: 'Forensic bench',
-    brief: 'Incident mapping and face search attach here once embeddings land. (Phase 4.)',
+    brief: 'Similarity search over gate captures, incident log, and gate heatmap.',
   },
 }
 
@@ -189,6 +190,9 @@ export default function Dashboard() {
         {(user.role === 'VerificationOfficer' || user.role === 'SuperAdmin') && <ReviewDesk />}
         {(user.role === 'GateOperator' || user.role === 'SuperAdmin' || user.role === 'SiteCommander') && (
           <Kiosk siteId={activeSiteId} gateId={gateId} />
+        )}
+        {(user.role === 'ForensicAnalyst' || user.role === 'SuperAdmin') && (
+          <ForensicBench siteId={activeSiteId} />
         )}
 
         {canWrite && activeSiteId ? (
