@@ -19,6 +19,8 @@ pub struct AppState {
     /// Role-grant cache (60s TTL). Revocation propagates within the TTL;
     /// SuperAdmin bypass never consults it.
     pub grants: GrantCache,
+    /// None when BIOMETRIC_KEY is missing/malformed; KYC endpoints 503.
+    pub crypto: Option<crate::infrastructure::crypto::TemplateCrypto>,
 }
 
 impl AppState {
@@ -36,6 +38,13 @@ impl AppState {
         };
         let pool = db::connect(&database_url).await?;
         db::run_migrations(&pool).await?;
+        let crypto = match crate::infrastructure::crypto::TemplateCrypto::from_env() {
+            Ok(c) => Some(c),
+            Err(e) => {
+                tracing::warn!(error = %e, "template crypto unavailable; KYC endpoints will 503");
+                None
+            }
+        };
         let snapshots = match crate::infrastructure::storage::SnapshotStore::from_env().await {
             Ok(store) => Some(store),
             Err(e) => {
@@ -51,6 +60,7 @@ impl AppState {
             login_limiter: super::rate_limit::Limiter::auth_login(),
             refresh_limiter: super::rate_limit::Limiter::auth_refresh(),
             grants: GrantCache::builder().time_to_live(std::time::Duration::from_secs(60)).build(),
+            crypto,
         })
     }
 }

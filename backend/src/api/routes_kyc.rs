@@ -55,24 +55,36 @@ struct KycRow {
     decision_note: String,
 }
 
-fn to_application(row: KycRow) -> Option<KycApplication> {
-    Some(KycApplication {
+fn to_application(
+    crypto: &crate::infrastructure::crypto::TemplateCrypto,
+    row: KycRow,
+) -> AppResult<Option<KycApplication>> {
+    Ok(Some(KycApplication {
         id: row.id,
         full_name: row.full_name,
         organization: row.organization,
-        document_type: DocumentType::parse(&row.document_type)?,
-        document_number: row.document_number,
-        photo_url: row.photo_url,
-        status: KycStatus::parse(&row.status)?,
+        document_type: DocumentType::parse(&row.document_type)
+            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?,
+        document_number: crypto.decrypt(&row.document_number)?,
+        photo_url: crypto.decrypt_opt(&row.photo_url)?,
+        status: KycStatus::parse(&row.status)
+            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?,
         submitted_at: row.submitted_at,
         decided_at: row.decided_at,
         decided_by: row.decided_by,
         decision_note: row.decision_note,
-    })
+    }))
 }
 
 const ROW_COLS: &str = "id, full_name, organization, document_type, document_number, \
     photo_url, status, submitted_at, decided_at, decided_by, decision_note";
+
+/// Fail-closed accessor: without BIOMETRIC_KEY no PII may be written or read.
+fn crypto(state: &AppState) -> AppResult<crate::infrastructure::crypto::TemplateCrypto> {
+    state.crypto.clone().ok_or_else(|| {
+        AppError::Internal(anyhow::anyhow!("encryption unavailable; set BIOMETRIC_KEY"))
+    })
+}
 
 /// Public endpoint: journalists submit identity documents for review.
 /// No auth by design (pre-registration portal); rate limiting lands in s3.
@@ -89,6 +101,7 @@ pub async fn submit_kyc(
     let document_type = DocumentType::parse(&body.document_type).ok_or_else(|| {
         AppError::BadRequest("document_type must be aadhaar, pan, or press_id".to_owned())
     })?;
+    let crypto = crypto(&state)?;
     let row: KycRow = sqlx::query_as(&format!(
         "INSERT INTO kyc_applications (full_name, organization, document_type, document_number, photo_url)
          VALUES ($1, $2, $3, $4, $5) RETURNING {ROW_COLS}"
@@ -96,12 +109,15 @@ pub async fn submit_kyc(
     .bind(body.full_name.trim())
     .bind(body.organization.as_deref().unwrap_or(""))
     .bind(document_type.as_str())
-    .bind(body.document_number.trim())
-    .bind(body.photo_url.as_deref().unwrap_or(""))
+    .bind(crypto.encrypt(body.document_number.trim())?)
+    .bind(crypto.encrypt(body.photo_url.as_deref().unwrap_or(""))?)
     .fetch_one(&state.pool)
     .await
     .map_err(AppError::Db)?;
-    Ok(Json(to_application(row).ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?))
+    Ok(Json(
+        to_application(&crypto, row)?
+            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?,
+    ))
 }
 
 /// Reviewer queue; optional `?status=pending|approved|rejected`.
@@ -126,7 +142,14 @@ pub async fn list_kyc(
     .fetch_all(&state.pool)
     .await
     .map_err(AppError::Db)?;
-    Ok(Json(rows.into_iter().filter_map(to_application).collect()))
+    let crypto = crypto(&state)?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        if let Some(app) = to_application(&crypto, row)? {
+            out.push(app);
+        }
+    }
+    Ok(Json(out))
 }
 
 /// Approve or reject a pending application. Decided rows are immutable.
@@ -166,7 +189,11 @@ pub async fn decide_kyc(
             AppError::NotFound("application not found".to_owned())
         });
     };
-    Ok(Json(to_application(row).ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?))
+    let crypto = crypto(&state)?;
+    Ok(Json(
+        to_application(&crypto, row)?
+            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?,
+    ))
 }
 
 /// Signed press card for an approved application (QR payload for gate scans).

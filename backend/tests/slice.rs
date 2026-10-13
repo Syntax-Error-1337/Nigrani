@@ -30,6 +30,13 @@ async fn test_state() -> nigrani::api::state::AppState {
             .time_to_live(std::time::Duration::from_secs(60))
             .build(),
         snapshots: None,
+        // Deterministic test key: base64 of 32 0x07 bytes.
+        crypto: Some(
+            nigrani::infrastructure::crypto::TemplateCrypto::from_base64(
+                "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+            )
+            .expect("test key"),
+        ),
     }
 }
 
@@ -534,8 +541,14 @@ async fn forensics_enroll_search_incidents_heatmap() {
 
     // Near-duplicate enrolls of a distinctive random direction (shared DB
     // may hold residue from other tests, so assert on tight distances).
-    // Deterministic PRNG: no extra deps, stable across runs.
-    let mut seed: u64 = 0x9E3779B97F4A7C15;
+    // Time-seeded PRNG: every run enrolls unique vectors so residue from
+    // prior runs (cosine distance ~1.0 away) falls outside the threshold.
+    // (A fixed seed re-enrolled identical vectors and poisoned later runs.)
+    let mut seed: u64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .subsec_nanos() as u64
+        ^ 0x9E3779B97F4A7C15;
     let mut rand = move || {
         seed ^= seed << 13;
         seed ^= seed >> 7;
@@ -828,4 +841,91 @@ async fn error_responses_carry_request_id() {
     let body: Value = res.json().await.unwrap();
     assert_eq!(body["request_id"], header_id);
     assert!(body["error"].is_string());
+}
+
+#[tokio::test]
+async fn kyc_pii_encrypted_at_rest() {
+    let srv = TestServer::spawn().await;
+    let doc = format!("ENC-{}", uuid::Uuid::new_v4());
+    let app: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": "Cipher Test",
+            "document_type": "aadhaar",
+            "document_number": doc,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    // API round-trips plaintext …
+    assert_eq!(app["document_number"], doc);
+    // … while the row holds an opaque envelope.
+    let state = test_state().await;
+    let stored: String = sqlx::query_scalar("SELECT document_number FROM kyc_applications WHERE id = $1")
+        .bind(app["id"].as_str().unwrap().parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert!(stored.starts_with("v1:"), "ciphertext envelope, got: {stored}");
+    assert!(!stored.contains(&doc));
+    // A different key cannot read it.
+    let wrong =
+        nigrani::infrastructure::crypto::TemplateCrypto::from_base64(
+            "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+        )
+        .unwrap();
+    assert!(wrong.decrypt(&stored).is_err());
+    // Tampered envelope fails too.
+    let right =
+        nigrani::infrastructure::crypto::TemplateCrypto::from_base64(
+            "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+        )
+        .unwrap();
+    assert!(right.decrypt(&format!("{stored}tampered")).is_err());
+}
+
+#[tokio::test]
+async fn kyc_without_key_fails_closed() {
+    // A server booted without BIOMETRIC_KEY refuses PII writes (503-style
+    // 500 with a clear message — never silent plaintext).
+    let mut state = test_state().await;
+    state.crypto = None;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = nigrani::api::router(state);
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let client = reqwest::Client::new();
+    let base = format!("http://{addr}");
+    let res = client
+        .post(format!("{base}/kyc/applications"))
+        .json(&json!({
+            "full_name": "No Key",
+            "document_type": "pan",
+            "document_number": "NK-1",
+        }))
+        .send()
+        .await
+        .unwrap();
+    // Internal details stay server-side by design; the client sees a loud
+    // 500 (not silent plaintext, not a 200).
+    assert_eq!(res.status(), 500);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], "internal error");
+    // And the constructor itself names the missing key.
+    std::env::remove_var("BIOMETRIC_KEY");
+    match nigrani::infrastructure::crypto::TemplateCrypto::from_env() {
+        Ok(_) => panic!("missing key must fail"),
+        Err(e) => assert!(e.to_string().contains("BIOMETRIC_KEY")),
+    }
 }
