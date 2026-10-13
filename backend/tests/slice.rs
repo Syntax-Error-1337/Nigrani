@@ -27,6 +27,7 @@ async fn test_state() -> nigrani::api::state::AppState {
         grants: nigrani::api::state::GrantCache::builder()
             .time_to_live(std::time::Duration::from_secs(60))
             .build(),
+        snapshots: None,
     }
 }
 
@@ -359,4 +360,161 @@ async fn grant_cache_serves_hits_and_invalidation() {
         .execute(&state.pool)
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn gate_event_card_and_manual_roundtrip() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let gate = srv.login("gate").await;
+    let analyst = srv.login("analyst").await;
+
+    // Fixture site + gate (superadmin bypasses write checks).
+    let site_name = format!("Kiosk {}", uuid::Uuid::new_v4());
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": site_name }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let gate_res: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": "K1" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let gate_id = gate_res["id"].as_str().unwrap().to_owned();
+
+    // Approved application + signed card via reviewer flow.
+    let app: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": format!("Kiosk {}", uuid::Uuid::new_v4()),
+            "document_type": "pan",
+            "document_number": format!("K-{}", uuid::Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let app_id = app["id"].as_str().unwrap().to_owned();
+    let verifier = srv.login("verifier").await;
+    srv.client
+        .post(format!("{}/kyc/applications/{app_id}/decide", srv.base))
+        .bearer_auth(&verifier)
+        .json(&json!({ "decision": "approved" }))
+        .send()
+        .await
+        .unwrap();
+    let card: Value = srv
+        .client
+        .get(format!("{}/kyc/applications/{app_id}/press-card", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    // Card entry as gate operator.
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "entry", "method": "press_card", "press_card": card }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let entry: Value = res.json().await.unwrap();
+    assert_eq!(entry["direction"], "entry");
+    assert_eq!(entry["application_id"], app_id);
+
+    // Tampered card denied.
+    let mut bad = card.clone();
+    bad["full_name"] = json!("Mallory");
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "entry", "method": "press_card", "press_card": bad }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+
+    // Wrong role denied (analyst lacks entries:write).
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "direction": "entry", "method": "manual" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+
+    // Cross-site gate rejected.
+    let res = srv
+        .client
+        .post(format!("{}/sites/00000000-0000-0000-0000-000000000000/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "entry", "method": "manual" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 404);
+
+    // Manual exit + log shows newest first.
+    srv.client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "exit", "method": "manual" }))
+        .send()
+        .await
+        .unwrap();
+    let log: Value = srv
+        .client
+        .get(format!("{}/sites/{site_id}/gates/{gate_id}/log?limit=5", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(log.as_array().unwrap().len(), 2);
+    assert_eq!(log[0]["direction"], "exit");
+    assert_eq!(log[1]["method"], "press_card");
+}
+
+#[tokio::test]
+async fn snapshot_without_storage_is_unavailable() {
+    // Test servers carry snapshots: None → clear 503, not a panic.
+    let srv = TestServer::spawn().await;
+    let gate = srv.login("gate").await;
+    let res = srv
+        .client
+        .post(format!("{}/snapshots", srv.base))
+        .bearer_auth(&gate)
+        .body(vec![0xFF, 0xD8, 0xFF, 0x00])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 500);
 }

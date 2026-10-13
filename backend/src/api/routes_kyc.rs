@@ -216,7 +216,7 @@ pub async fn verify_press_card(
     Ok(Json(serde_json::json!({ "valid": valid, "application_id": card.application_id })))
 }
 
-fn verify_card(secret: &[u8], card: &PressCard) -> bool {
+pub(crate) fn verify_card(secret: &[u8], card: &PressCard) -> bool {
     let mut mac = match HmacSha256::new_from_slice(secret) {
         Ok(mac) => mac,
         Err(_) => return false,

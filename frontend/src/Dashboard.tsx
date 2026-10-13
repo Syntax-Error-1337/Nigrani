@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import Kiosk from './Kiosk'
 import ReviewDesk from './ReviewDesk'
 import { useGates, useSites } from './api'
 import { apiFetch, useSession, type Role } from './session'
@@ -32,6 +33,7 @@ export default function Dashboard() {
   const sitesQuery = useSites()
   const [siteId, setSiteId] = useState<string | null>(null)
   const gatesQuery = useGates(siteId)
+  const [gateId, setGateId] = useState<string | null>(null)
   const [newSite, setNewSite] = useState({ name: '', location: '' })
   const [newGate, setNewGate] = useState({ name: '', direction: 'entry' })
   const [notice, setNotice] = useState<string | null>(null)
@@ -167,17 +169,27 @@ export default function Dashboard() {
           ) : (
             <ol className="mt-3 divide-y-2 divide-ink border-y-2 border-ink bg-white">
               {(gatesQuery.data ?? []).map((gate, i) => (
-                <li key={gate.id} className="flex items-baseline gap-4 px-4 py-3">
+                <li key={gate.id}>
+                  <button
+                    onClick={() => setGateId(gate.id)}
+                    className={`flex w-full items-baseline gap-4 px-4 py-3 text-left ${
+                      gateId === gate.id ? 'bg-amber-50' : ''
+                    }`}
+                  >
                   <span className="font-display text-4xl text-signal">
                     {String(i + 1).padStart(2, '0')}
                   </span>
                   <span className="font-display text-xl uppercase">{gate.name}</span>
-                  <span className="ml-auto font-ledger text-xs uppercase">{gate.direction}</span>
+                    <span className="ml-auto font-ledger text-xs uppercase">{gate.direction}</span>
+                  </button>
                 </li>
               ))}
             </ol>
           )}
         {(user.role === 'VerificationOfficer' || user.role === 'SuperAdmin') && <ReviewDesk />}
+        {(user.role === 'GateOperator' || user.role === 'SuperAdmin' || user.role === 'SiteCommander') && (
+          <Kiosk siteId={activeSiteId} gateId={gateId} />
+        )}
 
         {canWrite && activeSiteId ? (
             <form onSubmit={createGate} className="mt-4 flex flex-wrap items-end gap-3">

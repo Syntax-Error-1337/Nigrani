@@ -11,6 +11,8 @@ pub type GrantCache = moka::future::Cache<(String, String), bool>;
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub jwt_secret: Arc<[u8]>,
+    /// None when MinIO is unreachable at boot; snapshot endpoints 503.
+    pub snapshots: Option<crate::infrastructure::storage::SnapshotStore>,
     pub kyc_limiter: super::rate_limit::Limiter,
     /// Role-grant cache (60s TTL). Revocation propagates within the TTL;
     /// SuperAdmin bypass never consults it.
@@ -32,9 +34,17 @@ impl AppState {
         };
         let pool = db::connect(&database_url).await?;
         db::run_migrations(&pool).await?;
+        let snapshots = match crate::infrastructure::storage::SnapshotStore::from_env().await {
+            Ok(store) => Some(store),
+            Err(e) => {
+                tracing::warn!(error = %e, "snapshot storage unavailable; /snapshots will 503");
+                None
+            }
+        };
         Ok(Self {
             pool,
             jwt_secret: jwt_secret.into_bytes().into(),
+            snapshots,
             kyc_limiter: super::rate_limit::Limiter::kyc(),
             grants: GrantCache::builder().time_to_live(std::time::Duration::from_secs(60)).build(),
         })

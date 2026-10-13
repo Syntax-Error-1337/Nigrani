@@ -14,6 +14,25 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+  # MinIO is not pullable from this host's registry proxy; pinned community
+  # LocalStack 3.6.0 stands in (same S3 API; latest needs a license token).
+  s3:
+    image: localstack/localstack:3.6.0
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: nigrani
+      AWS_SECRET_ACCESS_KEY: nigrani-secret-key
+    ports:
+      - "4566:4566"
+    volumes:
+      - nigrani-s3:/var/lib/localstack
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health | grep -q s3 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
 volumes:
   nigrani-pgdata:
+  nigrani-s3:

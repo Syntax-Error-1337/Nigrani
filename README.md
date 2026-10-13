@@ -5,10 +5,8 @@ Protest-site access management: RBAC API (Rust/axum) + operations console
 
 ## Quick start
 
-Requires Docker (Postgres), Rust toolchain, Node 18+.
-
 ```sh
-docker compose up -d db
+docker compose up -d db s3
 cd backend && cp .env.example .env && cargo run     # :8080
 cd frontend && npm install && npm run dev           # :5173
 ```
@@ -17,6 +15,7 @@ Seeded logins (password `password`): `superadmin`, `commander`,
 `gate`, `verifier`, `analyst`.
 
 Public press accreditation (no login): `http://localhost:5173/press`.
+Gate kiosk: sign in as `gate`, pick a site and gate post.
 
 ## API
 
@@ -33,6 +32,10 @@ Public press accreditation (no login): `http://localhost:5173/press`.
 - `GET /kyc/applications/:id/press-card` → HMAC-signed card payload
   (paste into any QR generator for gate scans)
 - `POST /kyc/verify` → `{valid, application_id}` card check for gate roles
+- `POST /sites/:site_id/gates/:gate_id/events` (needs `entries:write`) →
+  screening event; card payloads HMAC-verified
+- `GET /sites/:site_id/gates/:gate_id/log` → recent crossings
+- `POST /snapshots` (JPEG ≤ 5MB) / `GET /snapshots/:key` → S3 snapshots
 
 Roles: SuperAdmin, SiteCommander, GateOperator, VerificationOfficer,
 ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
