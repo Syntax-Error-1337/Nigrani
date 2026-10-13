@@ -31,11 +31,15 @@ export default function Login() {
         setError('Unexpected sign-in response')
         return
       }
-      login(body.access_token, {
-        id: body.user.id,
-        username: body.user.username,
-        role: body.user.role as SessionUser['role'],
-      })
+      login(
+        body.access_token,
+        body.refresh_token,
+        {
+          id: body.user.id,
+          username: body.user.username,
+          role: body.user.role as SessionUser['role'],
+        },
+      )
       navigate('/dashboard', { replace: true })
     } catch {
       setError('Network error — is the API running?')
