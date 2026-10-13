@@ -47,6 +47,24 @@ impl SnapshotStore {
         Ok(())
     }
 
+    /// Presigned GET URL (15 min) so browsers fetch snapshots direct from S3.
+    pub async fn share_url(&self, key: &str) -> AppResult<String> {
+        use std::time::Duration;
+        let cfg = aws_sdk_s3::presigning::PresigningConfig::builder()
+            .expires_in(Duration::from_secs(15 * 60))
+            .build()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("presign config failed: {e}")))?;
+        let req = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .presigned(cfg)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("presign failed: {e}")))?;
+        Ok(req.uri().to_owned())
+    }
+
     pub async fn get(&self, key: &str) -> AppResult<Vec<u8>> {
         let out = self
             .client

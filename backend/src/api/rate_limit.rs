@@ -24,6 +24,14 @@ struct Window {
     started: Instant,
 }
 
+/// Route-attached rule: which quota guards this route. Inserted as an
+/// `Extension` alongside the `Limiter` it points at.
+#[derive(Debug, Clone)]
+pub struct LimitRule {
+    pub limiter: Limiter,
+    pub endpoint: &'static str,
+}
+
 impl Limiter {
     pub fn new(max_hits: u32, window: Duration) -> Self {
         Self { inner: Arc::new(Mutex::new(HashMap::new())), max_hits, window }
@@ -31,6 +39,14 @@ impl Limiter {
 
     pub fn kyc() -> Self {
         Self::new(10, Duration::from_secs(60))
+    }
+
+    pub fn auth_login() -> Self {
+        Self::new(20, Duration::from_secs(60))
+    }
+
+    pub fn auth_refresh() -> Self {
+        Self::new(30, Duration::from_secs(60))
     }
 
     fn allow(&self, ip: IpAddr) -> bool {
@@ -54,21 +70,29 @@ impl Limiter {
     }
 }
 
-/// Public KYC submit gate: 10 requests/minute per client IP.
-/// Reads the per-`AppState` limiter from the request extension.
+/// Per-IP fixed-window gate. Reads the route's [`LimitRule`] extension;
+/// routes without one pass through untouched.
+pub async fn limit_by_rule(
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let rule = request.extensions().get::<LimitRule>().cloned();
+    let allowed = rule.as_ref().is_none_or(|r| r.limiter.allow(addr.ip()));
+    if allowed {
+        next.run(request).await
+    } else {
+        let endpoint = rule.map(|r| r.endpoint).unwrap_or("unknown");
+        tracing::warn!(ip = %addr.ip(), endpoint, "rate limited");
+        (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded; try again shortly").into_response()
+    }
+}
+
+/// Back-compat alias: the KYC submit route keeps its own name.
 pub async fn kyc_limiter(
     ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
     request: Request,
     next: Next,
 ) -> Response {
-    let allowed = request
-        .extensions()
-        .get::<Limiter>()
-        .is_none_or(|limiter| limiter.allow(addr.ip()));
-    if allowed {
-        next.run(request).await
-    } else {
-        tracing::warn!(ip = %addr.ip(), "kyc submit rate limited");
-        (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded; try again shortly").into_response()
-    }
+    limit_by_rule(ConnectInfo(addr), request, next).await
 }

@@ -1,16 +1,23 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
 use uuid::Uuid;
 
 use super::auth::{require_permission, AuthUser};
+use super::paging::resolve as resolve_page;
 use super::state::AppState;
 use crate::core::{AppError, AppResult};
 use crate::domain::{Gate, GateDirection, Site};
 
 type Ts = chrono::DateTime<chrono::Utc>;
+
+#[derive(Debug, Deserialize)]
+pub struct ListFilter {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateSite {
@@ -27,13 +34,18 @@ pub struct CreateGate {
 pub async fn list_sites(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
+    Query(filter): Query<ListFilter>,
 ) -> AppResult<Json<Vec<Site>>> {
     require_permission(&state, &user, "sites:read").await?;
-    let rows: Vec<(Uuid, String, String, Ts)> =
-        sqlx::query_as("SELECT id, name, location, created_at FROM sites ORDER BY name")
-            .fetch_all(&state.pool)
-            .await
-            .map_err(AppError::Db)?;
+    let (limit, offset) = resolve_page(filter.limit, filter.offset, 50)?;
+    let rows: Vec<(Uuid, String, String, Ts)> = sqlx::query_as(
+        "SELECT id, name, location, created_at FROM sites ORDER BY name LIMIT $1 OFFSET $2",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
     Ok(Json(
         rows.into_iter()
             .map(|(id, name, location, created_at)| Site { id, name, location, created_at })
@@ -66,12 +78,17 @@ pub async fn list_gates(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path(site_id): Path<Uuid>,
+    Query(filter): Query<ListFilter>,
 ) -> AppResult<Json<Vec<Gate>>> {
     require_permission(&state, &user, "gates:read").await?;
+    let (limit, offset) = resolve_page(filter.limit, filter.offset, 50)?;
     let rows: Vec<(Uuid, Uuid, String, String, Ts)> = sqlx::query_as(
-        "SELECT id, site_id, name, direction, created_at FROM gates WHERE site_id = $1 ORDER BY name",
+        "SELECT id, site_id, name, direction, created_at FROM gates
+         WHERE site_id = $1 ORDER BY name LIMIT $2 OFFSET $3",
     )
     .bind(site_id)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.pool)
     .await
     .map_err(AppError::Db)?;

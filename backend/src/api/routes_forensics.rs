@@ -255,6 +255,7 @@ pub async fn create_incident(
 #[derive(Debug, Deserialize)]
 pub struct IncidentFilter {
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 pub async fn list_incidents(
@@ -264,13 +265,14 @@ pub async fn list_incidents(
     Query(filter): Query<IncidentFilter>,
 ) -> AppResult<Json<Vec<Incident>>> {
     require_permission(&state, &user, "gates:read").await?;
-    let limit = filter.limit.unwrap_or(50).clamp(1, 200);
+    let (limit, offset) = super::paging::resolve(filter.limit, filter.offset, 50)?;
     let rows: Vec<IncidentRow> = sqlx::query_as(
         "SELECT id, site_id, title, description, suspect_application_id, created_by, created_at
-         FROM incidents WHERE site_id = $1 ORDER BY created_at DESC LIMIT $2",
+         FROM incidents WHERE site_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
     )
         .bind(site_id)
         .bind(limit)
+        .bind(offset)
         .fetch_all(&state.pool)
         .await
         .map_err(AppError::Db)?;

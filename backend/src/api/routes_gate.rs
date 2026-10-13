@@ -68,6 +68,7 @@ pub struct RecordEvent {
 #[derive(Debug, Deserialize)]
 pub struct LogFilter {
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 /// Raw `entry_logs` row; converted via [`EntryRow::into_log`].
@@ -168,17 +169,18 @@ pub async fn gate_log(
     Query(filter): Query<LogFilter>,
 ) -> AppResult<Json<Vec<EntryLog>>> {
     require_permission(&state, &user, "gates:read").await?;
-    let limit = filter.limit.unwrap_or(50).clamp(1, 200);
+    let (limit, offset) = super::paging::resolve(filter.limit, filter.offset, 50)?;
     let rows: Vec<EntryRow> = sqlx::query_as(
             "SELECT l.id, l.gate_id, l.application_id, l.direction, l.method,
                     l.snapshot_key, l.recorded_by, l.recorded_at
              FROM entry_logs l JOIN gates g ON g.id = l.gate_id
              WHERE l.gate_id = $1 AND g.site_id = $2
-             ORDER BY l.recorded_at DESC LIMIT $3",
+             ORDER BY l.recorded_at DESC LIMIT $3 OFFSET $4",
         )
         .bind(gate_id)
         .bind(site_id)
         .bind(limit)
+        .bind(offset)
         .fetch_all(&state.pool)
         .await
         .map_err(AppError::Db)?;
@@ -204,6 +206,22 @@ pub async fn upload_snapshot(
     let key = format!("{}.jpg", Uuid::new_v4());
     store.put_jpeg(&key, body.to_vec()).await?;
     Ok(Json(serde_json::json!({ "key": key })))
+}
+
+/// Share link: presigned S3 URL for direct browser fetch (no API egress).
+pub async fn share_snapshot(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(key): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_permission(&state, &user, "gates:read").await?;
+    if key.contains('/') || key.contains("..") {
+        return Err(AppError::BadRequest("invalid snapshot key".to_owned()));
+    }
+    let Some(store) = &state.snapshots else {
+        return Err(AppError::Internal(anyhow::anyhow!("snapshot storage unavailable")));
+    };
+    Ok(Json(serde_json::json!({ "url": store.share_url(&key).await? })))
 }
 
 pub async fn download_snapshot(

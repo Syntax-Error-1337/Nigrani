@@ -29,6 +29,8 @@ pub struct SubmitKyc {
 #[derive(Debug, Deserialize)]
 pub struct KycFilter {
     pub status: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,10 +115,14 @@ pub async fn list_kyc(
     if KycStatus::parse(status).is_none() {
         return Err(AppError::BadRequest("status must be pending, approved, or rejected".to_owned()));
     }
+    let (limit, offset) = super::paging::resolve(filter.limit, filter.offset, 50)?;
     let rows: Vec<KycRow> = sqlx::query_as(&format!(
-        "SELECT {ROW_COLS} FROM kyc_applications WHERE status = $1 ORDER BY submitted_at"
+        "SELECT {ROW_COLS} FROM kyc_applications WHERE status = $1
+         ORDER BY submitted_at LIMIT $2 OFFSET $3"
     ))
     .bind(status)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.pool)
     .await
     .map_err(AppError::Db)?;

@@ -14,6 +14,8 @@ pub struct AppState {
     /// None when MinIO is unreachable at boot; snapshot endpoints 503.
     pub snapshots: Option<crate::infrastructure::storage::SnapshotStore>,
     pub kyc_limiter: super::rate_limit::Limiter,
+    pub login_limiter: super::rate_limit::Limiter,
+    pub refresh_limiter: super::rate_limit::Limiter,
     /// Role-grant cache (60s TTL). Revocation propagates within the TTL;
     /// SuperAdmin bypass never consults it.
     pub grants: GrantCache,
@@ -46,6 +48,8 @@ impl AppState {
             jwt_secret: jwt_secret.into_bytes().into(),
             snapshots,
             kyc_limiter: super::rate_limit::Limiter::kyc(),
+            login_limiter: super::rate_limit::Limiter::auth_login(),
+            refresh_limiter: super::rate_limit::Limiter::auth_refresh(),
             grants: GrantCache::builder().time_to_live(std::time::Duration::from_secs(60)).build(),
         })
     }

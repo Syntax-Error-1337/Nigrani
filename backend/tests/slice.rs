@@ -24,6 +24,8 @@ async fn test_state() -> nigrani::api::state::AppState {
         pool,
         jwt_secret: Arc::<[u8]>::from(b"test-secret".as_slice()),
         kyc_limiter: nigrani::api::rate_limit::Limiter::kyc(),
+        login_limiter: nigrani::api::rate_limit::Limiter::auth_login(),
+        refresh_limiter: nigrani::api::rate_limit::Limiter::auth_refresh(),
         grants: nigrani::api::state::GrantCache::builder()
             .time_to_live(std::time::Duration::from_secs(60))
             .build(),
@@ -667,4 +669,76 @@ async fn forensics_enroll_search_incidents_heatmap() {
         .await
         .unwrap();
     assert!(heat.as_array().unwrap().is_empty(), "no gates yet");
+}
+
+#[tokio::test]
+async fn list_pagination_and_offset_cap() {
+    let srv = TestServer::spawn().await;
+    let gate = srv.login("gate").await;
+    // limit honored
+    let one: Value = srv
+        .client
+        .get(format!("{}/sites?limit=1", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(one.as_array().unwrap().len(), 1);
+    // offset pages past the first row
+    let all: Value = srv
+        .client
+        .get(format!("{}/sites?limit=200", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let total = all.as_array().unwrap().len();
+    if total > 1 {
+        let rest: Value = srv
+            .client
+            .get(format!("{}/sites?limit=200&offset=1", srv.base))
+            .bearer_auth(&gate)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(rest.as_array().unwrap().len(), total - 1);
+    }
+    // offset cap enforced
+    let res = srv
+        .client
+        .get(format!("{}/sites?offset=10001", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+}
+
+#[tokio::test]
+async fn auth_endpoints_rate_limited() {
+    let srv = TestServer::spawn().await;
+    let mut limited = false;
+    for _ in 0..25 {
+        let res = srv
+            .client
+            .post(format!("{}/auth/login", srv.base))
+            .json(&json!({ "username": "nosuch", "password": "x" }))
+            .send()
+            .await
+            .unwrap();
+        if res.status() == 429 {
+            limited = true;
+            break;
+        }
+    }
+    assert!(limited, "expected 429 within 25 rapid logins");
 }
