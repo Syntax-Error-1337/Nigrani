@@ -190,10 +190,14 @@ pub async fn decide_kyc(
         });
     };
     let crypto = crypto(&state)?;
-    Ok(Json(
-        to_application(&crypto, row)?
-            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?,
-    ))
+    let app = to_application(&crypto, row)?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?;
+    state.hub.publish(&super::events::HubEvent::KycDecided {
+        at: chrono::Utc::now(),
+        application_id: app.id,
+        decision: status.as_str().to_owned(),
+    });
+    Ok(Json(app))
 }
 
 /// Signed press card for an approved application (QR payload for gate scans).

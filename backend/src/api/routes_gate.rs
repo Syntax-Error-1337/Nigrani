@@ -159,7 +159,15 @@ pub async fn record_event(
         .fetch_one(&state.pool)
         .await
         .map_err(AppError::Db)?;
-    Ok(Json(row.into_log()))
+    let log = row.into_log();
+    state.hub.publish(&super::events::HubEvent::Crossing {
+        at: log.recorded_at,
+        site_id,
+        gate_id,
+        direction: log.direction.as_str().to_owned(),
+        method: log.method.as_str().to_owned(),
+    });
+    Ok(Json(log))
 }
 
 pub async fn gate_log(

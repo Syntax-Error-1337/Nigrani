@@ -1,11 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import Dashboard from './Dashboard'
+import { useEventStream } from './events'
 import Login from './Login'
 import PressApply from './PressApply'
 import { useSession } from './session'
 
 const queryClient = new QueryClient()
+
+function LiveUpdates() {
+  useEventStream()
+  return null
+}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useSession((s) => s.user)
@@ -24,6 +30,7 @@ export default function App() {
             path="/dashboard"
             element={
               <RequireAuth>
+                <LiveUpdates />
                 <Dashboard />
               </RequireAuth>
             }

@@ -30,6 +30,7 @@ async fn test_state() -> nigrani::api::state::AppState {
             .time_to_live(std::time::Duration::from_secs(60))
             .build(),
         snapshots: None,
+        hub: nigrani::api::events::EventHub::new(),
         // Deterministic test key: base64 of 32 0x07 bytes.
         crypto: Some(
             nigrani::infrastructure::crypto::TemplateCrypto::from_base64(
@@ -928,4 +929,73 @@ async fn kyc_without_key_fails_closed() {
         Ok(_) => panic!("missing key must fail"),
         Err(e) => assert!(e.to_string().contains("BIOMETRIC_KEY")),
     }
+}
+
+#[tokio::test]
+async fn event_stream_fans_out_crossings() {
+    use futures_util::StreamExt;
+    let srv = TestServer::spawn().await;
+    let gate = srv.login("gate").await;
+
+    // Two subscribers on the same hub.
+    let url = format!("{}/events?token={gate}", srv.base.replace("http", "ws"));
+    let (mut s1, _) = tokio_tungstenite::connect_async(&url).await.expect("ws1");
+    let (mut s2, _) = tokio_tungstenite::connect_async(&url).await.expect("ws2");
+
+    // Trigger a crossing via the API (needs a site + gate fixture).
+    let superadmin = srv.login("superadmin").await;
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Stream {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let gate_res: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": "S1" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let gate_id = gate_res["id"].as_str().unwrap().to_owned();
+    srv.client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "entry", "method": "manual" }))
+        .send()
+        .await
+        .unwrap();
+
+    // Both sockets observe the crossing (topology events may arrive first;
+    // drain until the crossing appears).
+    for sock in [&mut s1, &mut s2] {
+        let mut seen_crossing = false;
+        for _ in 0..8 {
+            let msg = tokio::time::timeout(std::time::Duration::from_secs(5), sock.next())
+                .await
+                .expect("event in time")
+                .expect("ws message")
+                .expect("text");
+            let text = msg.into_text().expect("text");
+            if text.contains("\"kind\":\"crossing\"") && text.contains(&gate_id) {
+                seen_crossing = true;
+                break;
+            }
+        }
+        assert!(seen_crossing, "crossing event fanned out");
+    }
+
+    // Bad token rejected (WS handshake fails).
+    let bad = format!("{}/events?token=nope", srv.base.replace("http", "ws"));
+    assert!(tokio_tungstenite::connect_async(&bad).await.is_err());
 }

@@ -21,6 +21,8 @@ pub struct AppState {
     pub grants: GrantCache,
     /// None when BIOMETRIC_KEY is missing/malformed; KYC endpoints 503.
     pub crypto: Option<crate::infrastructure::crypto::TemplateCrypto>,
+    /// Process-local realtime fan-out (single-instance; see events module).
+    pub hub: super::events::EventHub,
 }
 
 impl AppState {
@@ -61,6 +63,7 @@ impl AppState {
             refresh_limiter: super::rate_limit::Limiter::auth_refresh(),
             grants: GrantCache::builder().time_to_live(std::time::Duration::from_secs(60)).build(),
             crypto,
+            hub: super::events::EventHub::new(),
         })
     }
 }

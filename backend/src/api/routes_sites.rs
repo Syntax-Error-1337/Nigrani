@@ -71,7 +71,9 @@ pub async fn create_site(
     .fetch_one(&state.pool)
     .await
     .map_err(map_constraint)?;
-    Ok(Json(Site { id, name, location, created_at }))
+    let site = Site { id, name, location, created_at };
+    state.hub.publish(&super::events::HubEvent::Topology { at: site.created_at });
+    Ok(Json(site))
 }
 
 pub async fn list_gates(
@@ -130,7 +132,9 @@ pub async fn create_gate(
         .await
         .map_err(map_constraint)?;
     let direction = GateDirection::parse(&direction_str).unwrap_or(GateDirection::Entry);
-    Ok(Json(Gate { id, site_id: gate_site_id, name, direction, created_at }))
+    let gate = Gate { id, site_id: gate_site_id, name, direction, created_at };
+    state.hub.publish(&super::events::HubEvent::Topology { at: gate.created_at });
+    Ok(Json(gate))
 }
 
 /// Unique violations → 409, FK violations → 404, everything else → 500.
