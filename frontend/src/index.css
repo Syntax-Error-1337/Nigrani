@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/*
+ * Nigrani operations-console theme.
+ * Subject: law-enforcement / gate-operations console. Visual anchor: the
+ * checkpoint ledger — tabular numerals, stencil-adjacent condensed headings,
+ * signal-amber accents on deep slate. One bold move: oversized condensed
+ * gate numerals as section anchors; everything else stays quiet.
+ */
+@theme {
+  --font-display: "Arial Narrow", "Helvetica Neue Condensed", Impact, sans-serif;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-ledger: ui-monospace, "SF Mono", Consolas, monospace;
+
+  --color-ink: #10151c;
+  --color-slate-panel: #1a2230;
+  --color-paper: #f4f2ea;
+  --color-signal: #d98a1f;
+  --color-ok: #2e7d4f;
+  --color-deny: #b3352b;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-paper);
+  color: var(--color-ink);
+}

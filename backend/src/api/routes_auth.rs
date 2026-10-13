@@ -1,0 +1,155 @@
+use axum::{extract::State, Json};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use super::auth::{require_permission, AuthUser};
+use super::state::AppState;
+use crate::core::{AppError, AppResult};
+use crate::domain::Role;
+use crate::infrastructure::auth::{
+    hex_digest, issue_access_token, new_refresh_token, refresh_expiry, verify_password,
+};
+
+#[derive(Debug, Deserialize)]
+pub struct LoginBody {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoginResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub user: MeResponse,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MeResponse {
+    pub id: Uuid,
+    pub username: String,
+    pub role: Role,
+}
+#[derive(Debug, Deserialize)]
+pub struct RefreshBody {
+    pub refresh_token: String,
+}
+
+/// Runtime-mapped row (no compile-time DB needed unlike `query!`).
+#[derive(Debug, sqlx::FromRow)]
+struct DbUser {
+    id: Uuid,
+    username: String,
+    password_hash: String,
+    role: String,
+}
+
+pub async fn login(
+    State(state): State<AppState>,
+    Json(body): Json<LoginBody>,
+) -> AppResult<Json<LoginResponse>> {
+    if body.username.is_empty() || body.password.is_empty() {
+        return Err(AppError::BadRequest("username and password required".to_owned()));
+    }
+    let row: Option<DbUser> = sqlx::query_as::<_, DbUser>(
+        r#"SELECT u.id, u.username, u.password_hash, r.name AS role
+           FROM users u JOIN roles r ON r.id = u.role_id
+           WHERE u.username = $1"#,
+    )
+    .bind(&body.username)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let row = row.ok_or_else(|| AppError::Unauthorized("invalid credentials".to_owned()))?;
+    verify_password(&row.password_hash, &body.password)?;
+    let role = Role::from_name(&row.role)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role {}", row.role)))?;
+    let access_token = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
+    let (refresh_token, stored_hash) = new_refresh_token();
+    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+        .bind(row.id)
+        .bind(&stored_hash)
+        .bind(refresh_expiry())
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    Ok(Json(LoginResponse {
+        access_token,
+        refresh_token,
+        user: MeResponse { id: row.id, username: row.username, role },
+    }))
+}
+
+pub async fn refresh(
+    State(state): State<AppState>,
+    Json(body): Json<RefreshBody>,
+) -> AppResult<Json<LoginResponse>> {
+    let stored = hex_digest(&body.refresh_token);
+    let rec: Option<(Uuid, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>)> =
+        sqlx::query_as("SELECT user_id, expires_at, revoked_at FROM refresh_tokens WHERE token_hash = $1")
+            .bind(&stored)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    let Some((user_id, expires_at, revoked_at)) = rec else {
+        return Err(AppError::Unauthorized("invalid refresh token".to_owned()));
+    };
+    if revoked_at.is_some() || expires_at < chrono::Utc::now() {
+        return Err(AppError::Unauthorized("refresh token expired".to_owned()));
+    }
+    // Rotation: revoke the presented token, issue a fresh pair.
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1")
+        .bind(&stored)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let row: DbUser = sqlx::query_as::<_, DbUser>(
+        r#"SELECT u.id, u.username, u.password_hash, r.name AS role
+           FROM users u JOIN roles r ON r.id = u.role_id
+           WHERE u.id = $1"#,
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let role = Role::from_name(&row.role)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role {}", row.role)))?;
+    let access_token = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
+    let (refresh_token, new_hash) = new_refresh_token();
+    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+        .bind(row.id)
+        .bind(&new_hash)
+        .bind(refresh_expiry())
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    Ok(Json(LoginResponse {
+        access_token,
+        refresh_token,
+        user: MeResponse { id: row.id, username: row.username, role },
+    }))
+}
+
+pub async fn me(AuthUser(user): AuthUser) -> Json<MeResponse> {
+    Json(MeResponse { id: user.id, username: user.username, role: user.role })
+}
+
+/// Permission-gated endpoint: only roles with `users:read` pass.
+pub async fn list_users(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<Vec<MeResponse>>> {
+    require_permission(&state.pool, &user, "users:read").await?;
+    let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
+        r#"SELECT u.id, u.username, r.name AS role
+           FROM users u JOIN roles r ON r.id = u.role_id ORDER BY u.username"#,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, username, role_name) in rows {
+        let Some(role) = Role::from_name(&role_name) else { continue };
+        out.push(MeResponse { id, username, role });
+    }
+    Ok(Json(out))
+}
