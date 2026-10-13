@@ -32,6 +32,7 @@ export default function Kiosk({
   const [card, setCard] = useState<PressCard | null>(null)
   const [direction, setDirection] = useState<'entry' | 'exit'>('entry')
   const [snapshotKey, setSnapshotKey] = useState('')
+  const [shareUrl, setShareUrl] = useState('')
   const [uploading, setUploading] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
@@ -85,6 +86,13 @@ export default function Kiosk({
       }
       if (body !== null && typeof body === 'object' && 'key' in body && typeof body.key === 'string') {
         setSnapshotKey(body.key)
+        const share = await apiFetch(`/snapshots/${body.key}/share`)
+        if (share.ok) {
+          const shareBody: unknown = await share.json().catch(() => ({}))
+          if (shareBody !== null && typeof shareBody === 'object' && 'url' in shareBody && typeof shareBody.url === 'string') {
+            setShareUrl(shareBody.url)
+          }
+        }
       }
     } finally {
       setUploading(false)
@@ -120,6 +128,7 @@ export default function Kiosk({
     setCard(null)
     setPayload('')
     setSnapshotKey('')
+    setShareUrl('')
     log.refetch()
   }
 
@@ -176,7 +185,17 @@ export default function Kiosk({
             />
           </label>
           {snapshotKey ? (
-            <p className="mt-1 font-ledger text-xs">staged: {snapshotKey}</p>
+            <p className="mt-1 font-ledger text-xs">
+              staged: {snapshotKey}
+              {shareUrl ? (
+                <>
+                  {' — '}
+                  <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">
+                    open capture
+                  </a>
+                </>
+              ) : null}
+            </p>
           ) : null}
           <div className="mt-3 flex gap-2">
             <button
