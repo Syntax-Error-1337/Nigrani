@@ -11,7 +11,7 @@ pub type GrantCache = moka::future::Cache<(String, String), bool>;
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub jwt_secret: Arc<[u8]>,
-    /// None when MinIO is unreachable at boot; snapshot endpoints 503.
+    /// None when S3 is unreachable at boot; snapshot endpoints 503.
     pub snapshots: Option<crate::infrastructure::storage::SnapshotStore>,
     pub kyc_limiter: super::rate_limit::Limiter,
     pub login_limiter: super::rate_limit::Limiter,

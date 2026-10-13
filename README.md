@@ -43,6 +43,26 @@ Gate kiosk: sign in as `gate`, pick a site and gate post.
 Roles: SuperAdmin, SiteCommander, GateOperator, VerificationOfficer,
 ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 
+## Deploy
+
+```sh
+docker compose up --build -d   # db + s3 + api; API on :8080
+```
+
+Local dev stays split-process (`cargo run` + `npm run dev`); the `api`
+service is for a single-host staging box. Production secrets come from the
+environment (`JWT_SECRET`, `APP_ENV=production` blocks default seeding).
+
+## Backups
+
+```sh
+# Postgres (roles, logs, embeddings, incidents)
+docker exec protest-db-1 pg_dump -U nigrani nigrani > backup.sql
+# Snapshots (S3 bucket)
+aws --endpoint-url http://127.0.0.1:4566 s3 sync \
+  s3://nigrani-snapshots ./backup-snapshots
+```
+
 ## Tests
 
 ```sh
@@ -61,8 +81,9 @@ cargo clippy --all-targets -- -D warnings
   `api.ts` (tanstack-query)
 - `docs/SCOPE.md` — slice scope and manual verification steps
 
-## Out of scope (later phases)
+## Out of scope (recorded)
 
-- Photo/fingerprint object storage (Phase 3, S3/MinIO)
 - QR image rendering (payload returned; use any QR generator)
 - Shared rate-limit quota across replicas (per-instance counters)
+- Access-token allowlist (15-min TTL is the mitigation)
+- Kubernetes manifests, TLS termination, CI pipelines

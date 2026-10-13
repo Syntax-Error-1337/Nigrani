@@ -32,6 +32,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+  api:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+      s3:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://nigrani:nigrani@db:5432/nigrani
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-change-me!!}
+      BIND_ADDR: 0.0.0.0:8080
+      S3_ENDPOINT: http://s3:4566
+      S3_BUCKET: nigrani-snapshots
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: nigrani
+      AWS_SECRET_ACCESS_KEY: nigrani-secret-key
+    ports:
+      - "8080:8080"
 
 volumes:
   nigrani-pgdata:

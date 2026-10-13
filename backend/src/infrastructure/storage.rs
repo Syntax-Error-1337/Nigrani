@@ -1,4 +1,4 @@
-//! S3/MinIO object storage for gate snapshot captures.
+//! S3 object storage for gate snapshot captures.
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
@@ -12,10 +12,11 @@ pub struct SnapshotStore {
 }
 
 impl SnapshotStore {
-    /// Connect from env (`S3_ENDPOINT` etc., dev defaults for compose MinIO)
+    /// Connect from env (`S3_ENDPOINT` etc., dev defaults for compose LocalStack S3)
     /// and create the bucket idempotently.
     pub async fn from_env() -> AppResult<Self> {
-        let endpoint = std::env::var("S3_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:9000".into());
+        let endpoint =
+            std::env::var("S3_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:4566".into());
         let bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "nigrani-snapshots".into());
         let config = aws_config::defaults(BehaviorVersion::latest())
             .endpoint_url(&endpoint)
