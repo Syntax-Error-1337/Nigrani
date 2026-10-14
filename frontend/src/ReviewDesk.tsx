@@ -33,6 +33,16 @@ export default function ReviewDesk() {
     queue.refetch()
   }
 
+  async function revoke(app: KycApplication) {
+    setNotice(null)
+    const res = await apiFetch(`/kyc/applications/${app.id}/revoke-card`, { method: 'POST' })
+    if (!res.ok) {
+      setNotice(queueError(await res.json().catch(() => ({})), `Could not revoke ${app.full_name}`))
+      return
+    }
+    queue.refetch()
+  }
+
   async function openPhoto(app: KycApplication) {
     setNotice(null)
     setPhoto(null)
@@ -133,6 +143,11 @@ export default function ReviewDesk() {
                   repeat ×{app.prior_decisions}
                 </span>
               ) : null}
+              {app.card_revoked_at ? (
+                <span className="border border-deny bg-red-50 px-1 font-ledger text-xs uppercase text-deny" title={`Card revoked ${app.card_revoked_at}`}>
+                  revoked
+                </span>
+              ) : null}
             </div>
             {tab === 'pending' ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -157,12 +172,22 @@ export default function ReviewDesk() {
               </div>
             ) : null}
             {tab === 'approved' ? (
-              <button
-                onClick={() => issueCard(app)}
-                className="mt-2 border border-ink px-3 py-1 font-ledger text-xs uppercase"
-              >
-                Issue press card
-              </button>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => issueCard(app)}
+                  className="border border-ink px-3 py-1 font-ledger text-xs uppercase"
+                >
+                  Issue press card
+                </button>
+                {!app.card_revoked_at ? (
+                  <button
+                    onClick={() => revoke(app)}
+                    className="bg-deny px-3 py-1 font-ledger text-xs uppercase text-white"
+                  >
+                    Revoke card
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </li>
         ))}

@@ -75,6 +75,10 @@ pub struct KycApplication {
     /// excluding self. Zero for first-timers; reviewers see repeat applicants.
     #[serde(default)]
     pub prior_decisions: i64,
+    /// Press-card kill timestamp (None = card valid). No un-revoke:
+    /// re-vetting means a fresh application.
+    #[serde(default)]
+    pub card_revoked_at: Option<DateTime<Utc>>,
 }
 
 /// Cryptographically signed press-card payload encoded into the QR code.

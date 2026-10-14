@@ -58,6 +58,7 @@ struct KycRow {
     decided_by: Option<Uuid>,
     decision_note: String,
     doc_fingerprint: String,
+    card_revoked_at: Option<Ts>,
 }
 
 fn to_application(
@@ -91,11 +92,13 @@ fn to_application(
         decided_by: row.decided_by,
         decision_note: row.decision_note,
         prior_decisions: 0,
+        card_revoked_at: row.card_revoked_at,
     }))
 }
 
 const ROW_COLS: &str = "id, full_name, organization, document_type, document_number, \
-    photo_url, status, submitted_at, decided_at, decided_by, decision_note, doc_fingerprint";
+    photo_url, status, submitted_at, decided_at, decided_by, decision_note, doc_fingerprint,
+    card_revoked_at";
 
 /// Canonical blind-index input: `document_type|NUMBER`, trimmed + uppercased.
 /// PAN/Aadhaar are case-insensitive identifiers; `pan| abc123` == `pan|ABC123`.
@@ -290,6 +293,72 @@ pub async fn decide_kyc(
     Ok(Json(app))
 }
 
+/// Revoke an application's press card (fraud discovered post-approval,
+/// credential shared, org disavows). Approved-only; idempotent; no un-revoke.
+pub async fn revoke_card(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(application_id): Path<Uuid>,
+) -> AppResult<Json<KycApplication>> {
+    require_permission(&state, &user, "kyc:review").await?;
+    let row: Option<KycRow> = sqlx::query_as(&format!(
+        "UPDATE kyc_applications SET card_revoked_at = now()
+         WHERE id = $1 AND status = 'approved' RETURNING {ROW_COLS}"
+    ))
+    .bind(application_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some(row) = row else {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM kyc_applications WHERE id = $1)")
+            .bind(application_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+        return Err(if exists {
+            AppError::Conflict("press card requires an approved application".to_owned())
+        } else {
+            AppError::NotFound("application not found".to_owned())
+        });
+    };
+    let crypto = crypto(&state)?;
+    let fp = row.doc_fingerprint.clone();
+    let mut app = to_application(&crypto, row)?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?;
+    app.prior_decisions = prior_count(&state.pool, &fp, app.id).await?;
+    super::routes_audit::record(
+        &state.pool, Some(user.id), "kyc.card_revoked", "kyc_application", Some(app.id),
+        serde_json::json!({}),
+    )
+    .await;
+    Ok(Json(app))
+}
+
+/// Card liveness for scan-time enforcement: HMAC must verify AND the
+/// application row must still approve AND not be revoked.
+pub async fn card_status(
+    pool: &sqlx::PgPool,
+    secret: &[u8],
+    card: &PressCard,
+) -> (&'static str, bool) {
+    if !verify_card(secret, card) {
+        return ("bad_signature", false);
+    }
+    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+        "SELECT status, card_revoked_at FROM kyc_applications WHERE id = $1",
+    )
+    .bind(card.application_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+    match row {
+        None => ("not_approved", false),
+        Some((status, _)) if status != KycStatus::Approved.as_str() => ("not_approved", false),
+        Some((_, Some(_))) => ("revoked", false),
+        Some((_, None)) => ("ok", true),
+    }
+}
+
 /// Signed press card for an approved application (QR payload for gate scans).
 pub async fn press_card(
     State(state): State<AppState>,
@@ -395,8 +464,8 @@ pub async fn verify_press_card(
     AuthUser(_user): AuthUser,
     Json(card): Json<PressCard>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let valid = verify_card(&state.jwt_secret, &card);
-    Ok(Json(serde_json::json!({ "valid": valid, "application_id": card.application_id })))
+    let (reason, valid) = card_status(&state.pool, &state.jwt_secret, &card).await;
+    Ok(Json(serde_json::json!({ "valid": valid, "reason": reason, "application_id": card.application_id })))
 }
 
 pub(crate) fn verify_card(secret: &[u8], card: &PressCard) -> bool {

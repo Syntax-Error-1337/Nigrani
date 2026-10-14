@@ -2232,3 +2232,179 @@ async fn topology_retirement_archive_restore_guards() {
         .unwrap();
     assert_eq!(res.status(), 200);
 }
+
+#[tokio::test]
+async fn press_card_revocation_kills_scans() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let gate = srv.login("gate").await;
+    let verifier = srv.login("verifier").await;
+
+    // Fixture site + gate + approved application + card.
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Revoke {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let g: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": "R1" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let gate_id = g["id"].as_str().unwrap().to_owned();
+    let app: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": format!("Revoke {}", uuid::Uuid::new_v4()),
+            "document_type": "pan",
+            "document_number": format!("R-{}", uuid::Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let app_id = app["id"].as_str().unwrap().to_owned();
+    srv.client
+        .post(format!("{}/kyc/applications/{app_id}/decide", srv.base))
+        .bearer_auth(&verifier)
+        .json(&json!({ "decision": "approved" }))
+        .send()
+        .await
+        .unwrap();
+    let card: Value = srv
+        .client
+        .get(format!("{}/kyc/applications/{app_id}/press-card", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    // Healthy card: verify ok + gate scan 200.
+    let verdict: Value = srv
+        .client
+        .post(format!("{}/kyc/verify", srv.base))
+        .bearer_auth(&gate)
+        .json(&card)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(verdict["valid"], true);
+    assert_eq!(verdict["reason"], "ok");
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "entry", "method": "press_card", "press_card": card }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    // Revoke pending application → 409 (only approved rows carry cards).
+    let other: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": "Pending Pete",
+            "document_type": "pan",
+            "document_number": format!("P-{}", uuid::Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{}/revoke-card", srv.base, other["id"].as_str().unwrap()))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 409);
+    // Gate role cannot revoke (needs kyc:review).
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{app_id}/revoke-card", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+
+    // Revoke: verify says revoked, gate scan 403s, manual still flows.
+    let revoked: Value = srv
+        .client
+        .post(format!("{}/kyc/applications/{app_id}/revoke-card", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(revoked["card_revoked_at"].is_string());
+    let verdict: Value = srv
+        .client
+        .post(format!("{}/kyc/verify", srv.base))
+        .bearer_auth(&gate)
+        .json(&card)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(verdict["valid"], false);
+    assert_eq!(verdict["reason"], "revoked");
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "entry", "method": "press_card", "press_card": card }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "entry", "method": "manual" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    // Idempotent second revoke.
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{app_id}/revoke-card", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+}

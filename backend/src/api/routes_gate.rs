@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::auth::{require_permission, AuthUser};
-use super::routes_kyc::verify_card;
 use super::state::AppState;
 use crate::core::{AppError, AppResult};
 use crate::domain::{GateDirection, PressCard};
@@ -142,8 +141,19 @@ pub async fn record_event(
     }
     let application_id = match (method, body.press_card) {
         (EntryMethod::PressCard, Some(card)) => {
-            if !verify_card(&state.jwt_secret, &card) {
-                return Err(AppError::Forbidden("press card failed verification".to_owned()));
+            let (reason, valid) = super::routes_kyc::card_status(
+                &state.pool,
+                &state.jwt_secret,
+                &card,
+            )
+            .await;
+            if !valid {
+                let msg = match reason {
+                    "revoked" => "press card revoked",
+                    "not_approved" => "press card application not approved",
+                    _ => "press card failed verification",
+                };
+                return Err(AppError::Forbidden(msg.to_owned()));
             }
             Some(card.application_id)
         }
