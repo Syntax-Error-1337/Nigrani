@@ -163,6 +163,19 @@ pub async fn record_event(
         (EntryMethod::Manual, _) => None,
     };
     let snapshot_key = body.snapshot_key.unwrap_or_default();
+    if !valid_snapshot_key(&snapshot_key) {
+        return Err(AppError::BadRequest("invalid snapshot key".to_owned()));
+    }
+    // Existence only when storage is wired (tests/dev-without-S3 skip it;
+    // format above is always enforced). A crossing citing a missing photo
+    // is evidence rot — reject at ingest, not at review.
+    if !snapshot_key.is_empty() {
+        if let Some(store) = &state.snapshots {
+            if !store.exists(&snapshot_key).await? {
+                return Err(AppError::NotFound("snapshot not found".to_owned()));
+            }
+        }
+    }
     let row: EntryRow = sqlx::query_as(
         "INSERT INTO entry_logs (gate_id, application_id, direction, method, snapshot_key, recorded_by)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -278,6 +291,21 @@ pub async fn download_snapshot(
     };
     let bytes = store.get(&key).await?;
     Ok(([(CONTENT_TYPE, "image/jpeg")], bytes).into_response())
+}
+
+/// Ingest-time snapshot reference check: upload mints `<uuid>.jpg`, so
+/// anything else is a client bug (or traversal). Empty = no photo, allowed.
+pub fn valid_snapshot_key(key: &str) -> bool {
+    if key.is_empty() {
+        return true;
+    }
+    if key.contains('/') || key.contains("..") {
+        return false;
+    }
+    let Some(stem) = key.strip_suffix(".jpg") else {
+        return false;
+    };
+    stem.parse::<Uuid>().is_ok()
 }
 
 fn is_jpeg(bytes: &[u8]) -> bool {

@@ -82,6 +82,22 @@ impl SnapshotStore {
             .map_err(|e| AppError::Internal(anyhow::anyhow!("snapshot read failed: {e}")))
     }
 
+    /// Cheap existence probe (HEAD, no body). Powers ingest-time key
+    /// validation so crossings never cite photos that aren't there.
+    pub async fn exists(&self, key: &str) -> AppResult<bool> {
+        match self.client.head_object().bucket(&self.bucket).key(key).send().await {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                use aws_sdk_s3::error::ProvideErrorMetadata;
+                match e.code() {
+                    // LocalStack + S3 both surface missing keys as 404/NoSuchKey.
+                    Some("NotFound" | "NoSuchKey") => Ok(false),
+                    _ => Err(AppError::Internal(anyhow::anyhow!("snapshot probe failed: {e}"))),
+                }
+            }
+        }
+    }
+
     /// Every key in the bucket (paginated ListObjectsV2, 1000/page).
     /// Used by orphan collection; buckets stay small (gate captures only).
     pub async fn list_keys(&self) -> AppResult<Vec<String>> {
