@@ -37,15 +37,21 @@ function errorMessage(body: unknown, fallback: string): string {
 
 // Parallel top-level fetches (no waterfall): sites list loads alongside gates
 // once a site is selected; see GatesPanel for the dependent query.
-export function useSites(q: string) {
-  const query = q ? `?q=${encodeURIComponent(q)}` : ''
-  return useQuery({ queryKey: ['sites', q], queryFn: () => getJson<Site[]>(`/sites${query}`) })
+export function useSites(q: string, showArchived = false) {
+  const params = new URLSearchParams()
+  if (q) params.set('q', q)
+  if (showArchived) params.set('include', 'archived')
+  const query = params.size > 0 ? `?${params}` : ''
+  return useQuery({ queryKey: ['sites', q, showArchived], queryFn: () => getJson<Site[]>(`/sites${query}`) })
 }
 
-export function useGates(siteId: string | null, q: string) {
-  const query = q ? `?q=${encodeURIComponent(q)}` : ''
+export function useGates(siteId: string | null, q: string, showArchived = false) {
+  const params = new URLSearchParams()
+  if (q) params.set('q', q)
+  if (showArchived) params.set('include', 'archived')
+  const query = params.size > 0 ? `?${params}` : ''
   return useQuery({
-    queryKey: ['gates', siteId, q],
+    queryKey: ['gates', siteId, q, showArchived],
     queryFn: () => getJson<Gate[]>(`/sites/${siteId}/gates${query}`),
     enabled: siteId !== null,
   })

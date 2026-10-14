@@ -37,9 +37,11 @@ export default function Dashboard() {
   const logout = useSession((s) => s.logout)
   const [siteSearch, setSiteSearch] = useState('')
   const [gateSearch, setGateSearch] = useState('')
-  const sitesQuery = useSites(useDebounced(siteSearch))
+  const [showArchivedSites, setShowArchivedSites] = useState(false)
+  const [showArchivedGates, setShowArchivedGates] = useState(false)
+  const sitesQuery = useSites(useDebounced(siteSearch), showArchivedSites)
   const [siteId, setSiteId] = useState<string | null>(null)
-  const gatesQuery = useGates(siteId, useDebounced(gateSearch))
+  const gatesQuery = useGates(siteId, useDebounced(gateSearch), showArchivedGates)
   const [gateId, setGateId] = useState<string | null>(null)
   const [newSite, setNewSite] = useState({ name: '', location: '' })
   const [newGate, setNewGate] = useState({ name: '', direction: 'entry' })
@@ -152,6 +154,14 @@ export default function Dashboard() {
               value={siteSearch}
               onChange={(e) => setSiteSearch(e.target.value)}
             />
+            {canWrite ? (
+              <button
+                onClick={() => setShowArchivedSites((v) => !v)}
+                className="border border-ink px-2 py-1 font-ledger text-xs uppercase"
+              >
+                {showArchivedSites ? 'Hide archived' : 'Show archived'}
+              </button>
+            ) : null}
           </div>
           {sitesQuery.isLoading ? <p className="mt-2">Loading sites…</p> : null}
           {sitesQuery.isError ? (
@@ -159,9 +169,12 @@ export default function Dashboard() {
           ) : null}
           <ul className="mt-3 grid gap-3 md:grid-cols-2">
             {sites.map((site) => (
-              <li key={site.id} className={`border-2 px-4 py-3 ${activeSiteId === site.id ? 'border-signal bg-white' : 'border-ink bg-white'}`}>
+              <li key={site.id} className={`border-2 px-4 py-3 ${activeSiteId === site.id ? 'border-signal bg-white' : 'border-ink bg-white'} ${site.archived_at ? 'opacity-60' : ''}`}>
                 <button onClick={() => setSiteId(site.id)} className="w-full text-left">
                   <span className="font-display text-xl uppercase">{site.name}</span>
+                  {site.archived_at ? (
+                    <span className="ml-2 border border-deny px-1 font-ledger text-[10px] uppercase text-deny">Archived</span>
+                  ) : null}
                   <span className="block font-ledger text-xs text-neutral-500">
                     {site.location || '—'}
                   </span>
@@ -213,6 +226,14 @@ export default function Dashboard() {
               value={gateSearch}
               onChange={(e) => setGateSearch(e.target.value)}
             />
+            {canWrite ? (
+              <button
+                onClick={() => setShowArchivedGates((v) => !v)}
+                className="border border-ink px-2 py-1 font-ledger text-xs uppercase"
+              >
+                {showArchivedGates ? 'Hide archived' : 'Show archived'}
+              </button>
+            ) : null}
           </div>
           {activeSiteId === null ? (
             <p className="mt-2">No site selected.</p>
@@ -225,7 +246,7 @@ export default function Dashboard() {
           ) : (
             <ol className="mt-3 divide-y-2 divide-ink border-y-2 border-ink bg-white">
               {(gatesQuery.data ?? []).map((gate, i) => (
-                <li key={gate.id} className="flex items-center gap-2 px-4 py-3">
+                <li key={gate.id} className={`flex items-center gap-2 px-4 py-3 ${gate.archived_at ? 'opacity-60' : ''}`}>
                   <button
                     onClick={() => setGateId(gate.id)}
                     className={`flex flex-1 items-baseline gap-4 text-left ${
@@ -236,6 +257,9 @@ export default function Dashboard() {
                     {String(i + 1).padStart(2, '0')}
                   </span>
                   <span className="font-display text-xl uppercase">{gate.name}</span>
+                  {gate.archived_at ? (
+                    <span className="border border-deny px-1 font-ledger text-[10px] uppercase text-deny">Archived</span>
+                  ) : null}
                     <span className="ml-auto font-ledger text-xs uppercase">{gate.direction}</span>
                   </button>
                   {canWrite ? (
