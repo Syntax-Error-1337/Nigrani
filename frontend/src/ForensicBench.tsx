@@ -74,7 +74,8 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
   const [linkKind, setLinkKind] = useState<Record<string, string>>({})
   const [linkRef, setLinkRef] = useState<Record<string, string>>({})
   const [linkNote, setLinkNote] = useState<Record<string, string>>({})
-
+  const [statusTab, setStatusTab] = useState<'all' | IncidentStatus>('all')
+  const [mineOnly, setMineOnly] = useState(false)
   async function search() {
     setNotice(null)
     setOk(null)
@@ -95,25 +96,45 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
     setHits(body as SearchHit[])
   }
 
+  function incidentQuery() {
+    const params = new URLSearchParams()
+    if (statusTab !== 'all') params.set('status', statusTab)
+    if (mineOnly) params.set('assignee', 'me')
+    const q = params.size > 0 ? `?${params}` : ''
+    return `/sites/${siteId}/incidents${q}`
+  }
+
   async function loadIncidents() {
     if (!siteId) return
-    const res = await apiFetch(`/sites/${siteId}/incidents`)
+    const res = await apiFetch(incidentQuery())
     if (res.ok) setIncidents((await res.json()) as Incident[])
   }
 
+  // Tab/filter changes reload immediately (tab clicks are not WS events).
+  useEffect(() => {
+    void loadIncidents()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId, statusTab, mineOnly])
+
   // Live refresh: fellow analysts' mutations arrive on the shared stream.
-  // Re-subscribes when the site changes; the stream is a hint — manual
-  // Refresh stays as the lag/drop fallback.
+  // Re-subscribes when the site OR the active filter changes, so filtered
+  // views stay filtered on events; manual Refresh is the lag/drop fallback.
+  // Query string built inline (not via incidentQuery) so the dep array is
+  // exhaustive without resubscribing every render.
   useEffect(
     () =>
       onIncidentEvent((ev) => {
         // Absent site_id = liberal match (older payloads always carry it).
         if (!siteId || (ev.site_id && ev.site_id !== siteId)) return
-        void apiFetch(`/sites/${siteId}/incidents`).then(async (res) => {
+        const params = new URLSearchParams()
+        if (statusTab !== 'all') params.set('status', statusTab)
+        if (mineOnly) params.set('assignee', 'me')
+        const q = params.size > 0 ? `?${params}` : ''
+        void apiFetch(`/sites/${siteId}/incidents${q}`).then(async (res) => {
           if (res.ok) setIncidents((await res.json()) as Incident[])
         })
       }),
-    [siteId],
+    [siteId, statusTab, mineOnly],
   )
 
   async function loadHeat() {
@@ -275,6 +296,26 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
           <button onClick={loadIncidents} className="mt-2 border border-ink px-3 py-1 font-ledger text-xs uppercase">
             Refresh incidents
           </button>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {(['all', 'open', 'investigating', 'resolved', 'closed'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  setStatusTab(s)
+                  setNotice(null)
+                }}
+                className={`border px-2 py-0.5 font-ledger text-[11px] uppercase ${statusTab === s ? 'border-ink bg-ink text-paper' : 'border-ink'}`}
+              >
+                {s}
+              </button>
+            ))}
+            <button
+              onClick={() => setMineOnly((v) => !v)}
+              className={`border px-2 py-0.5 font-ledger text-[11px] uppercase ${mineOnly ? 'border-ink bg-ink text-paper' : 'border-ink'}`}
+            >
+              Mine
+            </button>
+          </div>
           <ol className="mt-2 divide-y divide-neutral-200">
             {(incidents ?? []).map((i) => (
               <li key={i.id} className="py-2 text-sm">

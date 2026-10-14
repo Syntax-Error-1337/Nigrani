@@ -2546,3 +2546,124 @@ async fn forensic_references_validate_before_write() {
         assert_eq!(res.status(), want, "{kind}/{ref_id}");
     }
 }
+
+#[tokio::test]
+async fn incident_list_filters_by_status_and_assignee() {
+    let srv = TestServer::spawn().await;
+    let analyst = srv.login("analyst").await;
+    let superadmin = srv.login("superadmin").await;
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Triage {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    // Two cases: one stays open, one advances to investigating + assignee.
+    let mk = |title: &str| {
+        let client = &srv.client;
+        let base = srv.base.clone();
+        let site_id = site_id.clone();
+        let analyst = analyst.clone();
+        let title = title.to_owned();
+        async move {
+            client
+                .post(format!("{base}/sites/{site_id}/incidents"))
+                .bearer_auth(&analyst)
+                .json(&json!({ "title": title }))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let a = mk("Triage Alpha").await;
+    let b = mk("Triage Beta").await;
+    let users: Value = srv
+        .client
+        .get(format!("{}/users", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let analyst_id = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "analyst")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let iid_b = b["id"].as_str().unwrap().to_owned();
+    srv.client
+        .post(format!("{}/sites/{site_id}/incidents/{iid_b}/status", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "status": "investigating" }))
+        .send()
+        .await
+        .unwrap();
+    srv.client
+        .post(format!("{}/sites/{site_id}/incidents/{iid_b}/assign", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "user_id": analyst_id }))
+        .send()
+        .await
+        .unwrap();
+
+    let get = |q: &str| {
+        let client = &srv.client;
+        let base = srv.base.clone();
+        let site_id = site_id.clone();
+        let analyst = analyst.clone();
+        let q = q.to_owned();
+        async move {
+            client
+                .get(format!("{base}/sites/{site_id}/incidents{q}"))
+                .bearer_auth(&analyst)
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let open = get("?status=open").await;
+    assert!(open.as_array().unwrap().iter().any(|r| r["id"] == a["id"]));
+    assert!(open.as_array().unwrap().iter().all(|r| r["id"] != b["id"]));
+    let inv = get("?status=investigating").await;
+    assert!(inv.as_array().unwrap().iter().any(|r| r["id"] == b["id"]));
+    let mine = get("?assignee=me").await;
+    assert!(mine.as_array().unwrap().iter().any(|r| r["id"] == b["id"]));
+    assert!(mine.as_array().unwrap().iter().all(|r| r["id"] != a["id"]));
+    let both = get("?status=investigating&assignee=me").await;
+    assert_eq!(both.as_array().unwrap().len(), 1);
+    // Garbage status + garbage assignee rejected, not ignored.
+    let res = srv
+        .client
+        .get(format!("{}/sites/{site_id}/incidents?status=bogus", srv.base))
+        .bearer_auth(&analyst)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+    let res = srv
+        .client
+        .get(format!("{}/sites/{site_id}/incidents?assignee=nope", srv.base))
+        .bearer_auth(&analyst)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+}

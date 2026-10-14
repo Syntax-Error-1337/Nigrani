@@ -358,6 +358,10 @@ pub async fn create_incident(
 pub struct IncidentFilter {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    /// Workflow status filter (open|investigating|resolved|closed).
+    pub status: Option<String>,
+    /// Assignee filter: explicit user UUID or `me` for the caller.
+    pub assignee: Option<String>,
 }
 
 pub async fn list_incidents(
@@ -368,12 +372,34 @@ pub async fn list_incidents(
 ) -> AppResult<Json<Vec<Incident>>> {
     require_permission(&state, &user, "gates:read").await?;
     let (limit, offset) = super::paging::resolve(filter.limit, filter.offset, 50)?;
+    let status = match filter.status.as_deref() {
+        None => None,
+        Some(s) => Some(
+            IncidentStatus::parse(s)
+                .ok_or_else(|| {
+                    AppError::BadRequest(
+                        "status must be open, investigating, resolved, or closed".to_owned(),
+                    )
+                })?
+                .as_str(),
+        ),
+    };
+    let assignee: Option<Uuid> = match filter.assignee.as_deref() {
+        None => None,
+        Some("me") => Some(user.id),
+        Some(raw) => Some(raw.parse().map_err(|_| AppError::BadRequest("assignee must be a user id or me".to_owned()))?),
+    };
     let rows: Vec<IncidentRow> = sqlx::query_as(
         "SELECT id, site_id, title, description, suspect_application_id,
             status, assigned_to, resolved_at, created_by, created_at
-         FROM incidents WHERE site_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+         FROM incidents WHERE site_id = $1
+           AND ($2::text IS NULL OR status = $2)
+           AND ($3::uuid IS NULL OR assigned_to = $3)
+         ORDER BY created_at DESC LIMIT $4 OFFSET $5",
     )
         .bind(site_id)
+        .bind(status)
+        .bind(assignee)
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.pool)
