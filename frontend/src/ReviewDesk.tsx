@@ -173,12 +173,14 @@ export default function ReviewDesk() {
             ) : null}
             {tab === 'approved' ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => issueCard(app)}
-                  className="border border-ink px-3 py-1 font-ledger text-xs uppercase"
-                >
-                  Issue press card
-                </button>
+                {!app.card_revoked_at ? (
+                  <button
+                    onClick={() => issueCard(app)}
+                    className="border border-ink px-3 py-1 font-ledger text-xs uppercase"
+                  >
+                    Issue press card
+                  </button>
+                ) : null}
                 {!app.card_revoked_at ? (
                   <button
                     onClick={() => revoke(app)}

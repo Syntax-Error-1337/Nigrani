@@ -392,6 +392,11 @@ fn approved_card(
     if row.status != KycStatus::Approved.as_str() {
         return Err(AppError::Conflict("press card requires an approved application".to_owned()));
     }
+    // Revoked credentials never re-print (scan-time already refuses them;
+    // issuance must agree or revocation is theater).
+    if row.card_revoked_at.is_some() {
+        return Err(AppError::Conflict("press card revoked".to_owned()));
+    }
     let _ = application_id;
     Ok(sign_card(&state.jwt_secret, &row))
 }

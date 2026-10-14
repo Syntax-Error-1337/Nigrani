@@ -2467,6 +2467,17 @@ async fn press_card_revocation_kills_scans() {
         .await
         .unwrap();
     assert_eq!(res.status(), 200);
+    // Revoked credentials never re-print (JSON or PNG).
+    for path in ["press-card", "press-card.png"] {
+        let res = srv
+            .client
+            .get(format!("{}/kyc/applications/{app_id}/{path}", srv.base))
+            .bearer_auth(&verifier)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 409, "re-print refused: {path}");
+    }
 }
 
 #[tokio::test]
