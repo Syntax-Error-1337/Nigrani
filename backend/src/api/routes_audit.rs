@@ -249,6 +249,7 @@ pub async fn site_audit(
              WHERE entity_id = $1
                 OR entity_id IN (SELECT id FROM gates WHERE site_id = $1)
                 OR entity_id IN (SELECT l.id FROM entry_logs l JOIN gates g ON g.id = l.gate_id WHERE g.site_id = $1)
+                OR entity_id IN (SELECT id FROM incidents WHERE site_id = $1)
              ORDER BY seq DESC LIMIT $2 OFFSET $3",
         )
         .bind(site_id)

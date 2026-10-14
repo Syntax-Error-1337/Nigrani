@@ -2725,3 +2725,131 @@ async fn event_snapshot_key_hygiene() {
     assert_eq!(post(Some(&format!("{}.jpg", uuid::Uuid::new_v4()))).await, 200);
     assert_eq!(post(None).await, 200);
 }
+
+#[tokio::test]
+async fn site_audit_includes_incident_trail() {
+    let srv = TestServer::spawn().await;
+    let analyst = srv.login("analyst").await;
+    let superadmin = srv.login("superadmin").await;
+    let mk_site = |name: String| {
+        let client = &srv.client;
+        let base = srv.base.clone();
+        let superadmin = superadmin.clone();
+        async move {
+            client
+                .post(format!("{base}/sites"))
+                .bearer_auth(&superadmin)
+                .json(&json!({ "name": name }))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let a = mk_site(format!("CaseAudit {}", uuid::Uuid::new_v4())).await;
+    let b = mk_site(format!("Elsewhere {}", uuid::Uuid::new_v4())).await;
+    let aid = a["id"].as_str().unwrap().to_owned();
+    let bid = b["id"].as_str().unwrap().to_owned();
+    // Full lifecycle on site A: created + status + assign + link.
+    let inc: Value = srv
+        .client
+        .post(format!("{}/sites/{aid}/incidents", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "title": "Audited case" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let iid = inc["id"].as_str().unwrap().to_owned();
+    srv.client
+        .post(format!("{}/sites/{aid}/incidents/{iid}/status", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "status": "investigating" }))
+        .send()
+        .await
+        .unwrap();
+    let users: Value = srv
+        .client
+        .get(format!("{}/users", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let analyst_id = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "analyst")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    srv.client
+        .post(format!("{}/sites/{aid}/incidents/{iid}/assign", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "user_id": analyst_id }))
+        .send()
+        .await
+        .unwrap();
+    srv.client
+        .post(format!("{}/sites/{aid}/incidents/{iid}/links", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "kind": "note", "note": "audit me" }))
+        .send()
+        .await
+        .unwrap();
+    // Noise case on site B (must NOT leak into A's view).
+    srv.client
+        .post(format!("{}/sites/{bid}/incidents", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "title": "Foreign case" }))
+        .send()
+        .await
+        .unwrap();
+
+    let trail: Value = srv
+        .client
+        .get(format!("{}/sites/{aid}/audit?limit=50", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let actions: Vec<&str> = trail
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["entity_id"] == iid)
+        .map(|e| e["action"].as_str().unwrap())
+        .collect();
+    for want in ["incident.created", "incident.status", "incident.assigned", "incident.linked"] {
+        assert!(actions.contains(&want), "site audit shows {want}: {actions:?}");
+    }
+    assert!(trail.as_array().unwrap().iter().all(|e| {
+        e["entity_id"] != serde_json::Value::Null
+            || e["entity"] == "snapshot"
+            || e["entity"] == "retention"
+            || e["entity"] == "demo"
+    }), "no foreign rows leak");
+    let other: Value = srv
+        .client
+        .get(format!("{}/sites/{bid}/audit?limit=50", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(other.as_array().unwrap().iter().any(|e| e["action"] == "incident.created"));
+    assert!(other.as_array().unwrap().iter().all(|e| e["entity_id"] != iid));
+}
