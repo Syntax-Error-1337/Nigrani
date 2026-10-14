@@ -154,12 +154,13 @@ async fn kyc_approve_press_card_verify_roundtrip() {
     let decided: Value = res.json().await.unwrap();
     assert_eq!(decided["status"], "approved");
 
-    // Re-decide is a conflict.
+    // Re-decide is a conflict (note supplied so the rejection-note
+    // validation passes through to the immutability guard).
     let res = srv
         .client
         .post(format!("{}/kyc/applications/{id}/decide", srv.base))
         .bearer_auth(&verifier)
-        .json(&json!({ "decision": "rejected" }))
+        .json(&json!({ "decision": "rejected", "note": "second thoughts" }))
         .send()
         .await
         .unwrap();
@@ -3035,4 +3036,85 @@ async fn users_id(srv: &TestServer, superadmin: &str, username: &str) -> String 
         .as_str()
         .unwrap()
         .to_owned()
+}
+
+#[tokio::test]
+async fn rejection_requires_actionable_note() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let mk = |name: &str| {
+        let client = &srv.client;
+        let base = srv.base.clone();
+        let name = name.to_owned();
+        async move {
+            client
+                .post(format!("{base}/kyc/applications"))
+                .json(&json!({
+                    "full_name": name,
+                    "document_type": "pan",
+                    "document_number": format!("N-{}", uuid::Uuid::new_v4()),
+                }))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let pend = |id: &str, note: Option<&str>| {
+        let client = &srv.client;
+        let base = srv.base.clone();
+        let verifier = verifier.clone();
+        let id = id.to_owned();
+        let note = note.map(str::to_owned);
+        async move {
+            let mut payload = serde_json::json!({ "decision": "rejected" });
+            if let Some(n) = note {
+                payload["note"] = serde_json::json!(n);
+            }
+            client
+                .post(format!("{base}/kyc/applications/{id}/decide"))
+                .bearer_auth(&verifier)
+                .json(&payload)
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    // Missing, empty, and whitespace notes refused.
+    for note in [None, Some(""), Some("   "), Some("ok")] {
+        let app = mk("Noteless Nate").await;
+        let id = app["id"].as_str().unwrap();
+        assert_eq!(pend(id, note).await, 400, "note {note:?} refused");
+    }
+    // Actionable note decides; note round-trips on the row.
+    let app = mk("Noted Nelly").await;
+    let id = app["id"].as_str().unwrap().to_owned();
+    assert_eq!(pend(&id, Some("document expired, re-apply with renewed ID")).await, 200);
+    let queue: Value = srv
+        .client
+        .get(format!("{}/kyc/applications?status=rejected", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let row = queue.as_array().unwrap().iter().find(|r| r["id"] == id).unwrap();
+    assert_eq!(row["decision_note"], "document expired, re-apply with renewed ID");
+    // Approvals still need no note.
+    let app = mk("Approved Amy").await;
+    let id = app["id"].as_str().unwrap().to_owned();
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{id}/decide", srv.base))
+        .bearer_auth(&verifier)
+        .json(&json!({ "decision": "approved" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
 }

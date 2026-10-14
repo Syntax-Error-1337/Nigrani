@@ -22,6 +22,10 @@ export default function ReviewDesk() {
 
   async function decide(app: KycApplication, decision: 'approved' | 'rejected') {
     setNotice(null)
+    if (decision === 'rejected' && (note[app.id] ?? '').trim().length < 3) {
+      setNotice('Add a reason first — rejections need recourse')
+      return
+    }
     const res = await apiFetch(`/kyc/applications/${app.id}/decide`, {
       method: 'POST',
       body: JSON.stringify({ decision, note: note[app.id] ?? '' }),
@@ -153,7 +157,7 @@ export default function ReviewDesk() {
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input
                   className="border border-ink px-2 py-1 text-sm"
-                  placeholder="Decision note (optional)"
+                  placeholder="Reason (required for rejection)"
                   value={note[app.id] ?? ''}
                   onChange={(e) => setNote({ ...note, [app.id]: e.target.value })}
                 />

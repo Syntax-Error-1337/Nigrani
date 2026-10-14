@@ -251,6 +251,11 @@ pub async fn decide_kyc(
         "rejected" => KycStatus::Rejected,
         _ => return Err(AppError::BadRequest("decision must be approved or rejected".to_owned())),
     };
+    // Rejections without recourse are dead ends: require an actionable note
+    // (approvals need none — the card is the outcome).
+    if status == KycStatus::Rejected && body.note.as_deref().unwrap_or("").trim().len() < 3 {
+        return Err(AppError::BadRequest("rejection requires a note".to_owned()));
+    }
     let row: Option<KycRow> = sqlx::query_as(&format!(
         "UPDATE kyc_applications SET status = $1, decided_at = now(), decided_by = $2, decision_note = $3
          WHERE id = $4 AND status = 'pending' RETURNING {ROW_COLS}"
