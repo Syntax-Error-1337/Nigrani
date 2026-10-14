@@ -13,6 +13,9 @@ const PREFIX: &str = "v1:";
 #[derive(Clone)]
 pub struct TemplateCrypto {
     cipher: Aes256Gcm,
+    /// Raw key, retained for the document blind index (HMAC-SHA256).
+    /// Same secrecy as the cipher itself — never logged or serialized.
+    key: [u8; 32],
 }
 
 impl TemplateCrypto {
@@ -36,10 +39,24 @@ impl TemplateCrypto {
                 "BIOMETRIC_KEY must decode to 32 bytes"
             )));
         }
-        let key = aes_gcm::Key::<Aes256Gcm>::try_from(bytes.as_slice()).map_err(|_| {
-            AppError::Internal(anyhow::anyhow!("BIOMETRIC_KEY must decode to 32 bytes"))
-        })?;
-        Ok(Self { cipher: Aes256Gcm::new(&key) })
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes);
+        let cipher = Aes256Gcm::new(&aes_gcm::Key::<Aes256Gcm>::from(key));
+        Ok(Self { cipher, key })
+    }
+
+    /// Blind index over a normalized document identity
+    /// (`document_type|NUMBER`, uppercased + trimmed by callers):
+    /// base64(HMAC-SHA256(key, input)). HMAC (not plain hash) so a DB leak
+    /// doesn't enable offline document-number enumeration.
+    pub fn fingerprint(&self, normalized: &str) -> String {
+        use base64::Engine as _;
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.key).expect("hmac accepts any key length");
+        mac.update(normalized.as_bytes());
+        base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
     }
 
     pub fn encrypt(&self, plaintext: &str) -> AppResult<String> {

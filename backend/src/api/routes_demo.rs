@@ -76,6 +76,8 @@ pub async fn reset_demo(
         ("entry_logs", 365),
         ("refresh_tokens", 30),
         ("audit_log", 0),
+        ("incidents", 365),
+        ("incident_links", 365),
     ] {
         sqlx::query("INSERT INTO retention_policies (entity, retain_days) VALUES ($1, $2)")
             .bind(entity)

@@ -128,6 +128,11 @@ export default function ReviewDesk() {
               {app.decision_note ? (
                 <span className="font-ledger text-xs">note: {app.decision_note}</span>
               ) : null}
+              {(app.prior_decisions ?? 0) > 0 ? (
+                <span className="border border-signal bg-yellow-50 px-1 font-ledger text-xs uppercase" title="Prior decided applications share this document">
+                  repeat ×{app.prior_decisions}
+                </span>
+              ) : null}
             </div>
             {tab === 'pending' ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">

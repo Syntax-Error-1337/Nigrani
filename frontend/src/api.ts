@@ -61,6 +61,7 @@ export interface KycApplication {
   decided_at: string | null
   decided_by: string | null
   decision_note: string
+  prior_decisions: number
 }
 
 export interface PressCard {

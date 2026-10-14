@@ -57,6 +57,7 @@ struct KycRow {
     decided_at: Option<Ts>,
     decided_by: Option<Uuid>,
     decision_note: String,
+    doc_fingerprint: String,
 }
 
 fn to_application(
@@ -89,11 +90,39 @@ fn to_application(
         decided_at: row.decided_at,
         decided_by: row.decided_by,
         decision_note: row.decision_note,
+        prior_decisions: 0,
     }))
 }
 
 const ROW_COLS: &str = "id, full_name, organization, document_type, document_number, \
-    photo_url, status, submitted_at, decided_at, decided_by, decision_note";
+    photo_url, status, submitted_at, decided_at, decided_by, decision_note, doc_fingerprint";
+
+/// Canonical blind-index input: `document_type|NUMBER`, trimmed + uppercased.
+/// PAN/Aadhaar are case-insensitive identifiers; `pan| abc123` == `pan|ABC123`.
+pub fn normalize_document(document_type: &str, document_number: &str) -> String {
+    format!("{document_type}|{}", document_number.trim().to_uppercase())
+}
+
+/// Count of decided (non-pending) rows sharing a fingerprint, excluding one id.
+/// Indexed equality; reviewers see repeat applicants at a glance.
+async fn prior_count(
+    pool: &sqlx::PgPool,
+    fingerprint: &str,
+    exclude: Uuid,
+) -> AppResult<i64> {
+    if fingerprint.is_empty() {
+        return Ok(0);
+    }
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM kyc_applications
+         WHERE doc_fingerprint = $1 AND status <> 'pending' AND id <> $2",
+    )
+    .bind(fingerprint)
+    .bind(exclude)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::Db)
+}
 
 /// Fail-closed accessor: without BIOMETRIC_KEY no PII may be written or read.
 fn crypto(state: &AppState) -> AppResult<crate::infrastructure::crypto::TemplateCrypto> {
@@ -118,20 +147,49 @@ pub async fn submit_kyc(
         AppError::BadRequest("document_type must be aadhaar, pan, or press_id".to_owned())
     })?;
     let crypto = crypto(&state)?;
+    let fingerprint =
+        crypto.fingerprint(&normalize_document(document_type.as_str(), body.document_number.trim()));
+    // A live pending row for this document blocks resubmission (queue spam).
+    // Decided rows don't block: re-application after rejection is legitimate
+    // (and surfaces via `prior_decisions` instead).
+    let pending: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM kyc_applications WHERE doc_fingerprint = $1 AND status = 'pending')",
+    )
+    .bind(&fingerprint)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    if pending {
+        super::routes_audit::record(
+            &state.pool,
+            None,
+            "kyc.duplicate_blocked",
+            "kyc_application",
+            None,
+            serde_json::json!({"fingerprint_prefix": &fingerprint[..8.min(fingerprint.len())]}),
+        )
+        .await;
+        return Err(AppError::Conflict(
+            "a pending application already exists for this document".to_owned(),
+        ));
+    }
     let row: KycRow = sqlx::query_as(&format!(
-        "INSERT INTO kyc_applications (full_name, organization, document_type, document_number, photo_url)
-         VALUES ($1, $2, $3, $4, $5) RETURNING {ROW_COLS}"
+        "INSERT INTO kyc_applications (full_name, organization, document_type, document_number, photo_url, doc_fingerprint)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING {ROW_COLS}"
     ))
     .bind(body.full_name.trim())
     .bind(body.organization.as_deref().unwrap_or(""))
     .bind(document_type.as_str())
     .bind(crypto.encrypt(body.document_number.trim())?)
     .bind(crypto.encrypt(body.photo_url.as_deref().unwrap_or(""))?)
+    .bind(&fingerprint)
     .fetch_one(&state.pool)
     .await
     .map_err(AppError::Db)?;
-    let app = to_application(&crypto, row)?
+    let fp = row.doc_fingerprint.clone();
+    let mut app = to_application(&crypto, row)?
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?;
+    app.prior_decisions = prior_count(&state.pool, &fp, app.id).await?;
     super::routes_audit::record(
         &state.pool, None, "kyc.submitted", "kyc_application", Some(app.id),
         serde_json::json!({"full_name": app.full_name}),
@@ -168,7 +226,9 @@ pub async fn list_kyc(
     let crypto = crypto(&state)?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        if let Some(app) = to_application(&crypto, row)? {
+        let fp = row.doc_fingerprint.clone();
+        if let Some(mut app) = to_application(&crypto, row)? {
+            app.prior_decisions = prior_count(&state.pool, &fp, app.id).await?;
             out.push(app);
         }
     }
@@ -213,8 +273,10 @@ pub async fn decide_kyc(
         });
     };
     let crypto = crypto(&state)?;
-    let app = to_application(&crypto, row)?
+    let fp = row.doc_fingerprint.clone();
+    let mut app = to_application(&crypto, row)?
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?;
+    app.prior_decisions = prior_count(&state.pool, &fp, app.id).await?;
     super::routes_audit::record(
         &state.pool, Some(user.id), "kyc.decided", "kyc_application", Some(app.id),
         serde_json::json!({"decision": status.as_str()}),

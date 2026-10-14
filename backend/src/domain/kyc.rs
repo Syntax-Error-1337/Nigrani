@@ -71,6 +71,10 @@ pub struct KycApplication {
     pub decided_at: Option<DateTime<Utc>>,
     pub decided_by: Option<Uuid>,
     pub decision_note: String,
+    /// Decided (non-pending) rows sharing this document's blind index,
+    /// excluding self. Zero for first-timers; reviewers see repeat applicants.
+    #[serde(default)]
+    pub prior_decisions: i64,
 }
 
 /// Cryptographically signed press-card payload encoded into the QR code.

@@ -1902,3 +1902,106 @@ async fn incident_events_fan_out_and_coverage() {
             .unwrap();
     }
 }
+
+#[tokio::test]
+async fn kyc_duplicate_document_blocked_then_reapplies() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let doc = format!("DUP-{}", uuid::Uuid::new_v4());
+
+    // First submit: 200, no priors.
+    let first: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": "Repeat Reporter",
+            "document_type": "pan",
+            "document_number": doc,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(first["status"], "pending");
+    assert_eq!(first["prior_decisions"], 0);
+    let first_id = first["id"].as_str().unwrap().to_owned();
+
+    // Same document, different case + padding: 409 (normalization works).
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": "Repeat Reporter",
+            "document_type": "pan",
+            "document_number": format!("  {}  ", doc.to_lowercase()),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 409);
+
+    // Different document type, same number: NOT a duplicate (namespaced).
+    let other: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": "Repeat Reporter",
+            "document_type": "aadhaar",
+            "document_number": doc,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(other["status"], "pending");
+
+    // Reject the first; resubmit now succeeds with prior_decisions = 1.
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{first_id}/decide", srv.base))
+        .bearer_auth(&verifier)
+        .json(&json!({ "decision": "rejected", "note": "blurry scan" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let retry: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": "Repeat Reporter",
+            "document_type": "pan",
+            "document_number": doc,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(retry["status"], "pending");
+    assert_eq!(retry["prior_decisions"], 1);
+
+    // Reviewer queue surfaces the repeat signal on the decided row too.
+    let rejected: Value = srv
+        .client
+        .get(format!("{}/kyc/applications?status=rejected", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let row = rejected
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == first_id)
+        .expect("decided row in queue");
+    assert_eq!(row["prior_decisions"], 0, "no OTHER decided rows share it yet");
+}
