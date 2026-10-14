@@ -67,15 +67,72 @@ export const useSession = create<SessionState>()((set) => ({
 }))
 
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const send = async (token: string | null): Promise<Response> =>
+    fetch(path, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init.headers,
+      },
+    })
   const { accessToken, logout } = useSession.getState()
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...init.headers,
-    },
+  const res = await send(accessToken)
+  // One silent rotation on 401 (never for the refresh call itself —
+  // that path reports family death directly). Only a failed rotation
+  // logs out: revoked/locked/expired families are the true logged-out
+  // states; a merely-expired access token is not.
+  if (res.status !== 401 || path === '/auth/refresh') {
+    if (res.status === 401) logout()
+    return res
+  }
+  if (!(await refreshNow())) {
+    logout()
+    return res
+  }
+  return send(useSession.getState().accessToken)
+}
+
+/// In-flight rotation promise (single-flight: parallel 401s share ONE
+/// rotation — the server burns reused tokens, so a second concurrent
+/// rotation would nuke the family).
+let rotation: Promise<boolean> | null = null
+
+/// Rotate the session pair. Returns true on success (store updated).
+export function refreshNow(): Promise<boolean> {
+  if (rotation) return rotation
+  rotation = (async () => {
+    const { refreshToken } = useSession.getState()
+    if (!refreshToken) return false
+    let res: Response
+    try {
+      res = await fetch('/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+    } catch {
+      return false
+    }
+    if (!res.ok) return false
+    const body: unknown = await res.json().catch(() => null)
+    if (
+      body === null ||
+      typeof body !== 'object' ||
+      !('access_token' in body) ||
+      !('refresh_token' in body) ||
+      !('user' in body) ||
+      typeof body.access_token !== 'string' ||
+      typeof body.refresh_token !== 'string'
+    ) {
+      return false
+    }
+    const user = body.user as SessionUser
+    if (typeof user?.role !== 'string') return false
+    useSession.getState().login(body.access_token, body.refresh_token, user)
+    return true
+  })().finally(() => {
+    rotation = null
   })
-  if (res.status === 401) logout()
-  return res
+  return rotation
 }
