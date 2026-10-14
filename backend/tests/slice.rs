@@ -516,6 +516,27 @@ async fn gate_event_card_and_manual_roundtrip() {
     assert!(log[0]["holder_name"].is_null(), "manual crossing names nobody");
     assert_eq!(log[1]["method"], "press_card");
     assert!(log[1]["holder_name"].is_string(), "log list joins holder names");
+
+    // s36: export mirrors the live shapes (holder identity + archived flags).
+    let export: Value = srv
+        .client
+        .get(format!("{}/sites/{site_id}/export", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let xlogs = export["entry_logs"].as_array().unwrap();
+    assert_eq!(xlogs.len(), 2);
+    let card_row = xlogs.iter().find(|r| r["method"] == "press_card").unwrap();
+    assert!(card_row["holder_name"].is_string(), "export carries holder names");
+    assert!(xlogs.iter().find(|r| r["method"] == "manual").unwrap()["holder_name"].is_null());
+    let xgates = export["gates"].as_array().unwrap();
+    assert_eq!(xgates.len(), 1);
+    assert!(xgates[0].get("archived_at").is_some(), "export carries archived flag");
+    assert!(xgates[0]["archived_at"].is_null(), "live gate exports null archived_at");
 }
 
 #[tokio::test]
@@ -706,10 +727,22 @@ async fn list_pagination_and_offset_cap() {
         .await
         .unwrap();
     assert_eq!(one.as_array().unwrap().len(), 1);
-    // offset pages past the first row
+    // offset pages past the first row (unique prefix isolates the test
+    // from shared-DB residue; a bare count would saturate the limit cap).
+    let tag = format!("Pagetest{}", uuid::Uuid::new_v4().to_string().replace('-', ""));
+    for suffix in ["A", "B", "C"] {
+        let superadmin = srv.login("superadmin").await;
+        srv.client
+            .post(format!("{}/sites", srv.base))
+            .bearer_auth(&superadmin)
+            .json(&json!({ "name": format!("{tag}{suffix}") }))
+            .send()
+            .await
+            .unwrap();
+    }
     let all: Value = srv
         .client
-        .get(format!("{}/sites?limit=200", srv.base))
+        .get(format!("{}/sites?q={tag}&limit=200", srv.base))
         .bearer_auth(&gate)
         .send()
         .await
@@ -717,20 +750,18 @@ async fn list_pagination_and_offset_cap() {
         .json()
         .await
         .unwrap();
-    let total = all.as_array().unwrap().len();
-    if total > 1 {
-        let rest: Value = srv
-            .client
-            .get(format!("{}/sites?limit=200&offset=1", srv.base))
-            .bearer_auth(&gate)
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert_eq!(rest.as_array().unwrap().len(), total - 1);
-    }
+    assert_eq!(all.as_array().unwrap().len(), 3);
+    let rest: Value = srv
+        .client
+        .get(format!("{}/sites?q={tag}&limit=200&offset=1", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(rest.as_array().unwrap().len(), 2);
     // offset cap enforced
     let res = srv
         .client
@@ -1194,6 +1225,10 @@ async fn retention_purge_and_export() {
         .unwrap();
     assert_eq!(export["site_id"], site_id);
     assert!(export["gates"].is_array() && export["entry_logs"].is_array() && export["incidents"].is_array());
+    // s36: gates carry archived_at (null when live), logs carry holder
+    // slots (null on an empty site — keys present, values null).
+    assert!(export["gates"].as_array().unwrap().is_empty());
+    assert!(export["entry_logs"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]

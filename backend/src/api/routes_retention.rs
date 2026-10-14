@@ -206,6 +206,25 @@ struct ExportLink {
     added_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct ExportGate {
+    id: uuid::Uuid,
+    name: String,
+    direction: String,
+    archived_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExportLog {
+    id: uuid::Uuid,
+    gate_id: uuid::Uuid,
+    direction: String,
+    method: String,
+    recorded_at: chrono::DateTime<chrono::Utc>,
+    holder_name: Option<String>,
+    holder_org: Option<String>,
+}
+
 /// Site data-portability export: gates + recent logs + incidents as JSON.
 pub async fn export_site(
     State(state): State<AppState>,
@@ -213,23 +232,24 @@ pub async fn export_site(
     Path(site_id): Path<uuid::Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_permission(&state, &user, "sites:read").await?;
-    let gates: Vec<(uuid::Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, name, direction FROM gates WHERE site_id = $1 ORDER BY name",
+    let gates: Vec<ExportGate> = sqlx::query_as(
+        "SELECT id, name, direction, archived_at FROM gates WHERE site_id = $1 ORDER BY name",
+    )
+        .bind(site_id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let logs: Vec<ExportLog> = sqlx::query_as(
+        "SELECT l.id, l.gate_id, l.direction, l.method, l.recorded_at,
+                k.full_name AS holder_name, k.organization AS holder_org
+             FROM entry_logs l JOIN gates g ON g.id = l.gate_id
+             LEFT JOIN kyc_applications k ON k.id = l.application_id
+             WHERE g.site_id = $1 ORDER BY l.recorded_at DESC LIMIT 500",
     )
     .bind(site_id)
     .fetch_all(&state.pool)
     .await
     .map_err(AppError::Db)?;
-    let logs: Vec<(uuid::Uuid, uuid::Uuid, String, String, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(
-            "SELECT l.id, l.gate_id, l.direction, l.method, l.recorded_at
-             FROM entry_logs l JOIN gates g ON g.id = l.gate_id
-             WHERE g.site_id = $1 ORDER BY l.recorded_at DESC LIMIT 500",
-        )
-        .bind(site_id)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(AppError::Db)?;
     let incidents: Vec<ExportIncident> = sqlx::query_as(
         "SELECT id, title, description, status, assigned_to, resolved_at, created_at FROM incidents
              WHERE site_id = $1 ORDER BY created_at DESC LIMIT 200",
@@ -250,12 +270,13 @@ pub async fn export_site(
     Ok(Json(serde_json::json!({
         "site_id": site_id,
         "exported_at": chrono::Utc::now(),
-        "gates": gates.iter().map(|(id, name, direction)| serde_json::json!({
-            "id": id, "name": name, "direction": direction,
+        "gates": gates.iter().map(|g| serde_json::json!({
+            "id": g.id, "name": g.name, "direction": g.direction, "archived_at": g.archived_at,
         })).collect::<Vec<_>>(),
-        "entry_logs": logs.iter().map(|(id, gate_id, direction, method, at)| serde_json::json!({
-            "id": id, "gate_id": gate_id, "direction": direction,
-            "method": method, "recorded_at": at,
+        "entry_logs": logs.iter().map(|r| serde_json::json!({
+            "id": r.id, "gate_id": r.gate_id, "direction": r.direction,
+            "method": r.method, "recorded_at": r.recorded_at,
+            "holder_name": r.holder_name, "holder_org": r.holder_org,
         })).collect::<Vec<_>>(),
         "incidents": incidents.iter().map(|r| serde_json::json!({
             "id": r.id, "title": r.title, "description": r.description, "status": r.status,
