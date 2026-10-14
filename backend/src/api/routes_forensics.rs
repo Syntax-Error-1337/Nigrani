@@ -163,6 +163,27 @@ pub async fn enroll_embedding(
     if !body.embedding.iter().all(|v| v.is_finite()) {
         return Err(AppError::BadRequest("embedding must be finite floats".to_owned()));
     }
+    if let Some(entry_id) = body.entry_log_id {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM entry_logs WHERE id = $1)")
+            .bind(entry_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+        if !exists {
+            return Err(AppError::NotFound("entry log not found".to_owned()));
+        }
+    }
+    if let Some(app_id) = body.application_id {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM kyc_applications WHERE id = $1)")
+                .bind(app_id)
+                .fetch_one(&state.pool)
+                .await
+                .map_err(AppError::Db)?;
+        if !exists {
+            return Err(AppError::NotFound("application not found".to_owned()));
+        }
+    }
     let literal = to_vector_literal(&body.embedding);
     let row: (Uuid, Option<Uuid>, Option<Uuid>, DateTime<Utc>) = sqlx::query_as(
         "INSERT INTO face_embeddings (entry_log_id, application_id, embedding)
@@ -290,6 +311,17 @@ pub async fn create_incident(
     };
     if archived.is_some() {
         return Err(AppError::Gone("site is archived".to_owned()));
+    }
+    if let Some(suspect) = body.suspect_application_id {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM kyc_applications WHERE id = $1)")
+                .bind(suspect)
+                .fetch_one(&state.pool)
+                .await
+                .map_err(AppError::Db)?;
+        if !exists {
+            return Err(AppError::NotFound("suspect application not found".to_owned()));
+        }
     }
     let row: IncidentRow = sqlx::query_as(
         "INSERT INTO incidents (site_id, title, description, suspect_application_id, created_by)
@@ -577,10 +609,45 @@ pub async fn add_incident_link(
                 body.kind
             )));
         }
+        // Entry links cite a real crossing at THIS site (no cross-site
+        // evidence confusion); embeddings need existence only (they are
+        // site-ambiguous by design).
+        "entry" => {
+            let ref_uuid: Uuid = ref_id.parse().map_err(|_| {
+                AppError::BadRequest("entry link needs a UUID ref_id".to_owned())
+            })?;
+            let log_site: Option<Uuid> = sqlx::query_scalar(
+                "SELECT g.site_id FROM entry_logs l JOIN gates g ON g.id = l.gate_id WHERE l.id = $1",
+            )
+            .bind(ref_uuid)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+            let Some(log_site) = log_site else {
+                return Err(AppError::NotFound("entry log not found".to_owned()));
+            };
+            if log_site != site_id {
+                return Err(AppError::BadRequest("cross-site link refused".to_owned()));
+            }
+        }
+        "embedding" => {
+            let ref_uuid: Uuid = ref_id.parse().map_err(|_| {
+                AppError::BadRequest("embedding link needs a UUID ref_id".to_owned())
+            })?;
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM face_embeddings WHERE id = $1)")
+                    .bind(ref_uuid)
+                    .fetch_one(&state.pool)
+                    .await
+                    .map_err(AppError::Db)?;
+            if !exists {
+                return Err(AppError::NotFound("embedding not found".to_owned()));
+            }
+        }
         "snapshot" if ref_id.is_empty() || ref_id.contains('/') || ref_id.contains("..") => {
             return Err(AppError::BadRequest("invalid snapshot key".to_owned()));
         }
-        "entry" | "embedding" | "snapshot" | "note" => {}
+        "snapshot" | "note" => {}
         _ => {}
     }
     let note = body.note.as_deref().unwrap_or("").trim().to_owned();

@@ -2437,3 +2437,112 @@ async fn snapshot_collect_without_storage_is_unavailable() {
         .unwrap();
     assert_eq!(res.status(), 403);
 }
+
+#[tokio::test]
+async fn forensic_references_validate_before_write() {
+    let srv = TestServer::spawn().await;
+    let analyst = srv.login("analyst").await;
+    let superadmin = srv.login("superadmin").await;
+    let ghost = uuid::Uuid::new_v4().to_string();
+
+    // Enroll with dangling references → 404s, not 500s.
+    let ones: Vec<f32> = vec![1.0; 512];
+    for (field, status) in [("entry_log_id", 404), ("application_id", 404)] {
+        let res = srv
+            .client
+            .post(format!("{}/forensics/embeddings", srv.base))
+            .bearer_auth(&analyst)
+            .json(&serde_json::json!({ "embedding": ones, field: ghost }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), status, "{field} dangling");
+    }
+
+    // Incident with dangling suspect → 404.
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Refcheck {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "title": "Ghost suspect", "suspect_application_id": ghost }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 404);
+
+    // Valid incident + cross-site entry link → 400; bogus embedding → 404.
+    let inc: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/incidents", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({ "title": "Refcase" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let iid = inc["id"].as_str().unwrap().to_owned();
+    let other: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Otherside {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let other_id = other["id"].as_str().unwrap().to_owned();
+    let g: Value = srv
+        .client
+        .post(format!("{}/sites/{other_id}/gates", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": "X1" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let gate = srv.login("gate").await;
+    let ev: Value = srv
+        .client
+        .post(format!("{}/sites/{other_id}/gates/{}/events", srv.base, g["id"].as_str().unwrap()))
+        .bearer_auth(&gate)
+        .json(&json!({ "direction": "entry", "method": "manual" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    for (kind, ref_id, want) in [
+        ("entry", ev["id"].as_str().unwrap().to_owned(), 400),
+        ("entry", ghost.clone(), 404),
+        ("embedding", ghost.clone(), 404),
+    ] {
+        let res = srv
+            .client
+            .post(format!("{}/sites/{site_id}/incidents/{iid}/links", srv.base))
+            .bearer_auth(&analyst)
+            .json(&json!({ "kind": kind, "ref_id": ref_id, "note": "x" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), want, "{kind}/{ref_id}");
+    }
+}
