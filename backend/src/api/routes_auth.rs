@@ -267,6 +267,39 @@ pub async fn me(
     }))
 }
 
+/// Assignable roster: active users holding `incidents:write`, minimal
+/// fields. Gated on `incidents:write` itself (callers who can assign at
+/// all) — analysts discover assignees without full `users:read`.
+#[derive(Debug, serde::Serialize)]
+pub struct AssigneeView {
+    pub id: Uuid,
+    pub username: String,
+    pub role: String,
+}
+
+pub async fn list_assignable(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<Vec<AssigneeView>>> {
+    require_permission(&state, &user, "incidents:write").await?;
+    let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
+        r#"SELECT DISTINCT u.id, u.username, r.name AS role
+           FROM users u JOIN roles r ON r.id = u.role_id
+           JOIN role_permissions rp ON rp.role_id = r.id
+           JOIN permissions p ON p.id = rp.permission_id
+           WHERE u.active AND p.name = 'incidents:write'
+           ORDER BY u.username"#,
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(id, username, role)| AssigneeView { id, username, role })
+            .collect(),
+    ))
+}
+
 /// Permission-gated endpoint: only roles with `users:read` pass.
 pub async fn list_users(
     State(state): State<AppState>,

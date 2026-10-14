@@ -76,6 +76,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
   const [linkNote, setLinkNote] = useState<Record<string, string>>({})
   const [statusTab, setStatusTab] = useState<'all' | IncidentStatus>('all')
   const [mineOnly, setMineOnly] = useState(false)
+  const [roster, setRoster] = useState<{ id: string; username: string; role: string }[] | null>(null)
   async function search() {
     setNotice(null)
     setOk(null)
@@ -110,11 +111,21 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
     if (res.ok) setIncidents((await res.json()) as Incident[])
   }
 
-  // Tab/filter changes reload immediately (tab clicks are not WS events).
+  async function loadRoster() {
+    const res = await apiFetch('/users/assignable')
+    if (res.ok) setRoster((await res.json()) as { id: string; username: string; role: string }[])
+  }
+
   useEffect(() => {
     void loadIncidents()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, statusTab, mineOnly])
+
+  // Roster changes rarely (provisioning); load once per mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void loadRoster()
+  }, [])
 
   // Live refresh: fellow analysts' mutations arrive on the shared stream.
   // Re-subscribes when the site OR the active filter changes, so filtered
@@ -191,7 +202,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
     if (!siteId) return
     const user_id = (assignee[id] ?? '').trim()
     if (!user_id) {
-      setNotice('Paste an assignee user id first')
+      setNotice('Pick an assignee first')
       return
     }
     setNotice(null)
@@ -334,12 +345,21 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                   </button>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  <input
+                  <select
                     className="border border-ink px-2 py-0.5 font-ledger text-xs"
-                    placeholder="assignee user id"
                     value={assignee[i.id] ?? ''}
                     onChange={(e) => setAssignee((p) => ({ ...p, [i.id]: e.target.value }))}
-                  />
+                    onFocus={() => {
+                      if (roster === null) void loadRoster()
+                    }}
+                  >
+                    <option value="">assignee…</option>
+                    {(roster ?? []).map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.username} ({u.role})
+                      </option>
+                    ))}
+                  </select>
                   <button onClick={() => assign(i.id)} className="bg-ink px-2 py-0.5 font-ledger text-[11px] uppercase text-paper">
                     Assign
                   </button>

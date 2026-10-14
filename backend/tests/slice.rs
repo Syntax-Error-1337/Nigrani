@@ -2940,3 +2940,88 @@ async fn snapshot_upload_rate_limited() {
     }
     assert!(limited, "expected 429 within 35 rapid uploads");
 }
+
+#[tokio::test]
+async fn assignable_directory_scoped_to_eligible_actives() {
+    let srv = TestServer::spawn().await;
+    let analyst = srv.login("analyst").await;
+    let gate = srv.login("gate").await;
+    let superadmin = srv.login("superadmin").await;
+    // Analyst (incidents:write, no users:read) sees the roster; gate refused.
+    let roster: Value = srv
+        .client
+        .get(format!("{}/users/assignable", srv.base))
+        .bearer_auth(&analyst)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let names: Vec<&str> = roster
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["username"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"analyst"), "analyst lists self: {names:?}");
+    assert!(!names.contains(&"gate"), "gate lacks incidents:write");
+    assert!(roster.as_array().unwrap().iter().all(|u| u["failed_logins"].is_null()
+        && u["locked_until"].is_null()
+        && u["active"].is_null()), "minimal fields only");
+    let res = srv
+        .client
+        .get(format!("{}/users/assignable", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+    // Deactivated analysts vanish from the roster.
+    let uid = users_id(&srv, &superadmin, "analyst").await;
+    srv.client
+        .post(format!("{}/users/{uid}/deactivate", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap();
+    let roster: Value = srv
+        .client
+        .get(format!("{}/users/assignable", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!roster.as_array().unwrap().iter().any(|u| u["username"] == "analyst"));
+    srv.client
+        .post(format!("{}/users/{uid}/reactivate", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap();
+}
+
+async fn users_id(srv: &TestServer, superadmin: &str, username: &str) -> String {
+    let users: Value = srv
+        .client
+        .get(format!("{}/users", srv.base))
+        .bearer_auth(superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == username)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
