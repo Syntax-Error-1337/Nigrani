@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { apiFetch } from './session'
 import { useGateLog, type PressCard } from './api'
+import { enqueueCrossing, flushOutbox, retryDelayMs, useOutbox } from './outbox'
 
 function apiError(body: unknown, fallback: string): string {
   if (body !== null && typeof body === 'object' && 'error' in body) {
@@ -55,7 +56,51 @@ export default function Kiosk({
   const [notice, setNotice] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
   const log = useGateLog(siteId, gateId)
+  const pending = useOutbox()
+  const [flushing, setFlushing] = useState(false)
 
+  // Auto-flush on mount (queued from a dead tab) and on reconnect.
+  // `log` intentionally excluded — the query object is unstable and this
+  // must run once (same shape as the bench live-refresh effect).
+  useEffect(() => {
+    void flushOutbox().then((r) => {
+      if (r.sent > 0) {
+        setOk(`Flushed ${r.sent} queued crossing${r.sent === 1 ? '' : 's'}`)
+        log.refetch()
+      }
+    })
+    const onOnline = () => {
+      void flushOutbox().then((r) => {
+        if (r.sent > 0 || r.dropped > 0) log.refetch()
+      })
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function retryPending() {
+    setFlushing(true)
+    setNotice(null)
+    try {
+      const head = pending[0]
+      if (head) {
+        const { promise, resolve } = Promise.withResolvers<void>()
+        setTimeout(resolve, retryDelayMs(head.attempts))
+        await promise
+      }
+      const r = await flushOutbox()
+      if (r.dropped > 0) setNotice(`${r.dropped} queued crossing(s) dropped — gate retired`)
+      if (r.sent > 0) {
+        setOk(`Flushed ${r.sent} queued crossing${r.sent === 1 ? '' : 's'}`)
+        log.refetch()
+      } else if (r.pending > 0 && r.dropped === 0) {
+        setNotice(`Still offline — ${r.pending} crossing(s) waiting`)
+      }
+    } finally {
+      setFlushing(false)
+    }
+  }
   async function verify() {
     setNotice(null)
     setOk(null)
@@ -143,17 +188,38 @@ export default function Kiosk({
       setNotice('Verify a press card first')
       return
     }
-    const res = await apiFetch(`/sites/${siteId}/gates/${gateId}/events`, {
-      method: 'POST',
-      body: JSON.stringify({
-        direction,
-        method,
-        press_card: method === 'press_card' ? card : null,
-        snapshot_key: snapshotKey || null,
-      }),
-    })
+    const payload = {
+      siteId,
+      gateId,
+      direction,
+      method,
+      press_card: method === 'press_card' ? card : null,
+      snapshot_key: snapshotKey || null,
+    }
+    let res: Response
+    try {
+      res = await apiFetch(`/sites/${siteId}/gates/${gateId}/events`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    } catch {
+      enqueueCrossing(payload)
+      setNotice('Offline — crossing queued, will retry automatically')
+      return
+    }
     const body: unknown = await res.json().catch(() => ({}))
     if (!res.ok) {
+      // Retryable transport-side failures queue; 4xx verdicts surface.
+      // 410 (gate retired) drops immediately — nothing will ever succeed.
+      if (res.status === 429 || res.status >= 500) {
+        enqueueCrossing(payload)
+        setNotice('Server busy — crossing queued, will retry automatically')
+        return
+      }
+      if (res.status === 410) {
+        setNotice('Gate retired — crossing refused, not queued')
+        return
+      }
       const raw =
         body !== null && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
           ? body.error
@@ -167,12 +233,45 @@ export default function Kiosk({
     setSnapshotKey('')
     setShareUrl('')
     log.refetch()
+    // Piggyback: a good connection flushes anything waiting.
+    void flushOutbox().then((r) => {
+      if (r.sent > 0) log.refetch()
+    })
   }
 
   return (
     <section className="mt-8">
-      <h2 className="font-display text-2xl uppercase">Gate kiosk</h2>
-      {!gateId ? <p className="mt-2">Select a gate above to open the screening post.</p> : null}
+      <div className="flex items-baseline gap-3">
+        <h2 className="font-display text-2xl uppercase">Gate kiosk</h2>
+        {pending.length > 0 ? (
+          <span className="border border-signal bg-yellow-50 px-2 py-0.5 font-ledger text-xs uppercase">
+            {pending.length} pending
+          </span>
+        ) : null}
+        {pending.length > 0 ? (
+          <button
+            onClick={retryPending}
+            disabled={flushing}
+            className="border border-ink px-2 py-0.5 font-ledger text-xs uppercase disabled:opacity-50"
+          >
+            {flushing ? 'Retrying…' : 'Retry now'}
+          </button>
+        ) : null}
+      </div>
+      {pending.length > 0 ? (
+        <details className="mt-2 font-ledger text-xs">
+          <summary className="cursor-pointer uppercase">Queued crossings</summary>
+          <ol className="mt-1 divide-y divide-neutral-200">
+            {pending.map((p) => (
+              <li key={p.id} className="py-1">
+                <span className="uppercase">{p.direction}</span> · {p.method === 'press_card' ? 'card' : 'manual'}
+                {p.method === 'press_card' && p.press_card ? ` — ${p.press_card.full_name}` : null}
+                {' '}· {new Date(p.queued_at).toLocaleTimeString()} · try {p.attempts}
+              </li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
       {notice ? (
         <p role="alert" className="mt-3 border border-deny bg-red-50 px-3 py-2 text-sm text-deny">
           {notice}
