@@ -163,6 +163,89 @@ pub async fn run_purge(
     }))
 }
 
+/// Purgable tables with their timestamp columns. Single source shared by
+/// the real purge and the dry-run preview so predicates cannot drift.
+const PURGABLE: &[(&str, &str)] = &[
+    ("incident_links", "added_at"),
+    ("incidents", "created_at"),
+    ("face_embeddings", "captured_at"),
+    ("entry_logs", "recorded_at"),
+    ("kyc_applications", "submitted_at"),
+    ("refresh_tokens", "created_at"),
+];
+
+async fn count_older_than(
+    state: &AppState,
+    table: &str,
+    at_column: &str,
+    retain_days: i32,
+) -> AppResult<i64> {
+    if retain_days <= 0 {
+        return Ok(0);
+    }
+    // Table/column are internal constants (not user input); format is safe.
+    let n: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {table} WHERE {at_column} < now() - ($1 || ' days')::interval"
+    ))
+    .bind(retain_days.to_string())
+    .fetch_one(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    Ok(n)
+}
+
+/// Dry-run preview: per-entity counts the real purge WOULD delete, plus
+/// snapshot keys it would dereference. Read-only (no audit row, no S3).
+pub async fn preview_purge(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<serde_json::Value>> {
+    superadmin(&user)?;
+    let policies: Vec<(String, i32)> =
+        sqlx::query_as("SELECT entity, retain_days FROM retention_policies")
+            .fetch_all(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    let window = |entity: &str| {
+        policies.iter().find(|(e, _)| e == entity).map(|(_, d)| *d).unwrap_or(365)
+    };
+    let mut counts = serde_json::Map::new();
+    for (table, column) in PURGABLE {
+        counts.insert(
+            (*table).to_owned(),
+            serde_json::json!(count_older_than(&state, table, column, window(table)).await?),
+        );
+    }
+    // s29 diff, minus the deletes: doomed keys not referenced afterwards.
+    let log_window = window("entry_logs");
+    let doomed: Vec<String> = if log_window > 0 {
+        sqlx::query_scalar(
+            "SELECT DISTINCT snapshot_key FROM entry_logs
+             WHERE recorded_at < now() - ($1 || ' days')::interval AND snapshot_key <> ''",
+        )
+        .bind(log_window.to_string())
+        .fetch_all(&state.pool)
+        .await
+        .map_err(AppError::Db)?
+    } else {
+        Vec::new()
+    };
+    let still: std::collections::HashSet<String> = sqlx::query_scalar(
+        "SELECT DISTINCT snapshot_key FROM entry_logs WHERE snapshot_key <> ''",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .into_iter()
+    .collect();
+    let dereferenced = doomed.into_iter().filter(|k| !still.contains(k)).count() as i64;
+    Ok(Json(serde_json::json!({
+        "dry_run": true,
+        "purged": counts,
+        "snapshots_dereferenced": dereferenced,
+    })))
+}
+
 async fn purge_older_than(
     state: &AppState,
     table: &str,

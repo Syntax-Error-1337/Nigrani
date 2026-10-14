@@ -3118,3 +3118,78 @@ async fn rejection_requires_actionable_note() {
         .unwrap();
     assert_eq!(res.status(), 200);
 }
+
+#[tokio::test]
+async fn purge_preview_mirrors_real_run() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let gate = srv.login("gate").await;
+    // Non-SuperAdmin refused.
+    let res = srv
+        .client
+        .post(format!("{}/admin/retention/preview", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+    // Tighten embeddings to force exactly one doomed row.
+    srv.client
+        .post(format!("{}/admin/retention/policies/face_embeddings", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "retain_days": 1 }))
+        .send()
+        .await
+        .unwrap();
+    let state = test_state().await;
+    let old_vec = format!("[{}]", vec!["0.5"; 512].join(","));
+    sqlx::query(
+        "INSERT INTO face_embeddings (embedding, captured_at) VALUES ($1::vector, now() - interval '5 days')",
+    )
+    .bind(&old_vec)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    let preview: Value = srv
+        .client
+        .post(format!("{}/admin/retention/preview", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(preview["dry_run"], true);
+    let predicted = preview["purged"]["face_embeddings"].as_i64().unwrap();
+    assert!(predicted >= 1, "preview sees the doomed row");
+    let report: Value = srv
+        .client
+        .post(format!("{}/admin/retention/run", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(report["purged"]["face_embeddings"], predicted, "real run matches preview");
+    let again: Value = srv
+        .client
+        .post(format!("{}/admin/retention/preview", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(again["purged"]["face_embeddings"], 0, "post-run preview is zero");
+    srv.client
+        .post(format!("{}/admin/retention/policies/face_embeddings", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "retain_days": 180 }))
+        .send()
+        .await
+        .unwrap();
+}

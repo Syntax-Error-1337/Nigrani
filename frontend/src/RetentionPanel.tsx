@@ -60,8 +60,29 @@ export default function RetentionPanel() {
     setReport('Purge ran')
   }
 
-  async function checkOrphans() {
+  async function preview() {
     setNotice(null)
+    setReport(null)
+    const res = await apiFetch('/admin/retention/preview', { method: 'POST' })
+    if (!res.ok) {
+      setNotice(`Preview refused (${res.status})`)
+      return
+    }
+    const body: unknown = await res.json()
+    if (body !== null && typeof body === 'object' && 'purged' in body) {
+      const purged: unknown = body.purged
+      if (purged !== null && typeof purged === 'object') {
+        const parts = Object.entries(purged).map(([k, v]) => `${k}: ${typeof v === 'number' ? v : '?'}`)
+        const deref: unknown = (body as Record<string, unknown>).snapshots_dereferenced
+        if (typeof deref === 'number' && deref > 0) parts.push(`snapshots_dereferenced: ${deref}`)
+        setReport(`Would purge — ${parts.join(', ')}`)
+        return
+      }
+    }
+    setReport('Preview ran')
+  }
+
+  async function checkOrphans() {
     setCollected(null)
     const res = await apiFetch('/admin/snapshots/collect', {
       method: 'POST',
@@ -103,6 +124,9 @@ export default function RetentionPanel() {
         </button>
         <button onClick={purge} className="border border-deny px-3 py-1 font-ledger text-xs uppercase text-deny">
           Run purge
+        </button>
+        <button onClick={preview} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
+          Preview purge
         </button>
       </div>
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}

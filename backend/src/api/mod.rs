@@ -22,7 +22,7 @@ use tower_http::trace::TraceLayer;
 use self::events::events_ws;
 use self::routes_audit::{list_audit, site_audit, verify_audit};
 use self::routes_demo::reset_demo;
-use self::routes_retention::{export_site, list_policies, run_purge, set_policy};
+use self::routes_retention::{export_site, list_policies, preview_purge, run_purge, set_policy};
 use self::routes_users::{change_password, create_user, set_active, unlock_user};
 use self::routes_auth::{list_assignable, list_users, login, logout, logout_all, me, refresh};
 use self::routes_forensics::{
@@ -105,6 +105,7 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/retention/policies", get(list_policies))
         .route("/admin/retention/policies/:entity", post(set_policy))
         .route("/admin/retention/run", post(run_purge))
+        .route("/admin/retention/preview", post(preview_purge))
         .route("/admin/demo/reset", post(reset_demo))
         .route("/sites/:site_id/export", get(export_site))
         .merge(kyc_submit)
