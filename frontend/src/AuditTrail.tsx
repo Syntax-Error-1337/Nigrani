@@ -11,7 +11,21 @@ interface AuditEntry {
   detail: unknown
 }
 
-export default function AuditTrail({ siteId, global }: { siteId: string | null; global?: boolean }) {
+function detailLines(detail: unknown): [string, string][] {
+  if (detail === null || typeof detail !== 'object' || Array.isArray(detail)) return []
+  return Object.keys(detail as Record<string, unknown>)
+    .sort()
+    .map((k) => {
+      const v: unknown = (detail as Record<string, unknown>)[k]
+      const text =
+        v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+          ? String(v)
+          : JSON.stringify(v)
+      return [k, text]
+    })
+}
+
+ export default function AuditTrail({ siteId, global }: { siteId: string | null; global?: boolean }) {
   const [rows, setRows] = useState<AuditEntry[] | null>(null)
   const [scope, setScope] = useState<'site' | 'all'>(global === true ? 'all' : 'site')
   const [verdict, setVerdict] = useState<string | null>(null)
@@ -70,14 +84,32 @@ export default function AuditTrail({ siteId, global }: { siteId: string | null; 
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
       {verdict ? <p className="mt-2 font-ledger text-xs">{verdict}</p> : null}
       <ol className="mt-3 divide-y divide-neutral-200 border-y-2 border-ink bg-white">
-        {(rows ?? []).map((e) => (
-          <li key={e.seq} className="flex items-baseline gap-3 px-4 py-2 font-ledger text-xs">
-            <span className="text-neutral-400">#{e.seq}</span>
-            <span className="uppercase">{e.action}</span>
-            <span className="text-neutral-500">{e.entity}</span>
-            <span className="ml-auto">{new Date(e.at).toLocaleString()}</span>
-          </li>
-        ))}
+        {(rows ?? []).map((e) => {
+          const lines = detailLines(e.detail)
+          return (
+            <li key={e.seq} className="px-4 py-2 font-ledger text-xs">
+              <div className="flex items-baseline gap-3">
+                <span className="text-neutral-400">#{e.seq}</span>
+                <span className="uppercase">{e.action}</span>
+                <span className="text-neutral-500">{e.entity}</span>
+                <span className="ml-auto">{new Date(e.at).toLocaleString()}</span>
+              </div>
+              {lines.length > 0 ? (
+                <details className="mt-1">
+                  <summary className="cursor-pointer uppercase text-neutral-500">detail</summary>
+                  <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3">
+                    {lines.map(([k, v]) => (
+                      <div key={k} className="contents">
+                        <dt className="text-neutral-500">{k}</dt>
+                        <dd className="break-all">{v}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </details>
+              ) : null}
+            </li>
+          )
+        })}
       </ol>
       {rows !== null && rows.length === 0 ? (
         <p className="mt-2 text-sm">No entries yet — actions append here.</p>
