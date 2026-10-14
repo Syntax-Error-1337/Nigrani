@@ -124,13 +124,21 @@ pub async fn record_event(
     let method = EntryMethod::parse(&body.method)
         .ok_or_else(|| AppError::BadRequest("method must be press_card or manual".to_owned()))?;
     // The gate MUST belong to the site in the path (no cross-site logging).
-    let gate_site: Option<Uuid> = sqlx::query_scalar("SELECT site_id FROM gates WHERE id = $1")
-        .bind(gate_id)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(AppError::Db)?;
-    if gate_site != Some(site_id) {
+    // Archived gates fail LOUD (410) — crossings must never vanish silently.
+    let gate: Option<(Uuid, Option<chrono::DateTime<chrono::Utc>>)> =
+        sqlx::query_as("SELECT site_id, archived_at FROM gates WHERE id = $1")
+            .bind(gate_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    let Some((gate_site, gate_archived)) = gate else {
         return Err(AppError::NotFound("gate not found at this site".to_owned()));
+    };
+    if gate_site != site_id {
+        return Err(AppError::NotFound("gate not found at this site".to_owned()));
+    }
+    if gate_archived.is_some() {
+        return Err(AppError::Gone("gate is archived".to_owned()));
     }
     let application_id = match (method, body.press_card) {
         (EntryMethod::PressCard, Some(card)) => {

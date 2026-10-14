@@ -19,6 +19,12 @@ pub struct ListFilter {
     pub offset: Option<i64>,
     /// Substring match on name/location.
     pub q: Option<String>,
+    /// `?include=archived` reveals retired rows (hidden by default).
+    pub include: Option<String>,
+}
+
+fn include_archived(filter: &ListFilter) -> bool {
+    filter.include.as_deref() == Some("archived")
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,12 +47,15 @@ pub async fn list_sites(
     require_permission(&state, &user, "sites:read").await?;
     let (limit, offset) = resolve_page(filter.limit, filter.offset, 50)?;
     let pattern = format!("%{}%", filter.q.as_deref().unwrap_or(""));
-    let rows: Vec<(Uuid, String, String, Ts)> = sqlx::query_as(
-        "SELECT id, name, location, created_at FROM sites
-         WHERE name ILIKE $1 OR location ILIKE $1
-         ORDER BY name LIMIT $2 OFFSET $3",
+    let show_all = include_archived(&filter);
+    let rows: Vec<(Uuid, String, String, Ts, Option<Ts>)> = sqlx::query_as(
+        "SELECT id, name, location, created_at, archived_at FROM sites
+         WHERE (name ILIKE $1 OR location ILIKE $1)
+           AND ($2 OR archived_at IS NULL)
+         ORDER BY name LIMIT $3 OFFSET $4",
     )
     .bind(pattern)
+    .bind(show_all)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
@@ -54,7 +63,13 @@ pub async fn list_sites(
     .map_err(AppError::Db)?;
     Ok(Json(
         rows.into_iter()
-            .map(|(id, name, location, created_at)| Site { id, name, location, created_at })
+            .map(|(id, name, location, created_at, archived_at)| Site {
+                id,
+                name,
+                location,
+                created_at,
+                archived_at,
+            })
             .collect(),
     ))
 }
@@ -77,7 +92,7 @@ pub async fn create_site(
     .fetch_one(&state.pool)
     .await
     .map_err(map_constraint)?;
-    let site = Site { id, name, location, created_at };
+    let site = Site { id, name, location, created_at, archived_at: None };
     state.hub.publish(&super::events::HubEvent::Topology { at: site.created_at });
     Ok(Json(site))
 }
@@ -91,23 +106,26 @@ pub async fn list_gates(
     require_permission(&state, &user, "gates:read").await?;
     let (limit, offset) = resolve_page(filter.limit, filter.offset, 50)?;
     let pattern = format!("%{}%", filter.q.as_deref().unwrap_or(""));
-    let rows: Vec<(Uuid, Uuid, String, String, Ts)> = sqlx::query_as(
-        "SELECT id, site_id, name, direction, created_at FROM gates
-         WHERE site_id = $1 AND name ILIKE $2 ORDER BY name LIMIT $3 OFFSET $4",
+    let show_all = include_archived(&filter);
+    let rows: Vec<(Uuid, Uuid, String, String, Ts, Option<Ts>)> = sqlx::query_as(
+        "SELECT id, site_id, name, direction, created_at, archived_at FROM gates
+         WHERE site_id = $1 AND name ILIKE $2 AND ($3 OR archived_at IS NULL)
+         ORDER BY name LIMIT $4 OFFSET $5",
     )
     .bind(site_id)
     .bind(pattern)
+    .bind(show_all)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
     .await
     .map_err(AppError::Db)?;
     let mut out = Vec::with_capacity(rows.len());
-    for (id, gate_site_id, name, direction_str, created_at) in rows {
+    for (id, gate_site_id, name, direction_str, created_at, archived_at) in rows {
         let Some(direction) = GateDirection::parse(&direction_str) else {
             continue;
         };
-        out.push(Gate { id, site_id: gate_site_id, name, direction, created_at });
+        out.push(Gate { id, site_id: gate_site_id, name, direction, created_at, archived_at });
     }
     Ok(Json(out))
 }
@@ -121,6 +139,18 @@ pub async fn create_gate(
     require_permission(&state, &user, "gates:write").await?;
     if body.name.trim().is_empty() {
         return Err(AppError::BadRequest("gate name required".to_owned()));
+    }
+    let site: Option<Option<Ts>> =
+        sqlx::query_scalar("SELECT archived_at FROM sites WHERE id = $1")
+            .bind(site_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    let Some(archived) = site else {
+        return Err(AppError::NotFound("site not found".to_owned()));
+    };
+    if archived.is_some() {
+        return Err(AppError::Gone("site is archived".to_owned()));
     }
     let direction = body
         .direction
@@ -140,7 +170,7 @@ pub async fn create_gate(
         .await
         .map_err(map_constraint)?;
     let direction = GateDirection::parse(&direction_str).unwrap_or(GateDirection::Entry);
-    let gate = Gate { id, site_id: gate_site_id, name, direction, created_at };
+    let gate = Gate { id, site_id: gate_site_id, name, direction, created_at, archived_at: None };
     state.hub.publish(&super::events::HubEvent::Topology { at: gate.created_at });
     Ok(Json(gate))
 }
@@ -160,4 +190,107 @@ fn map_constraint(e: sqlx::Error) -> AppError {
         }
     }
     AppError::Db(e)
+}
+
+/// Fetch a site's liveness (None = missing).
+async fn site_archived(pool: &sqlx::PgPool, site_id: Uuid) -> AppResult<Option<Option<Ts>>> {
+    sqlx::query_scalar("SELECT archived_at FROM sites WHERE id = $1")
+        .bind(site_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(AppError::Db)
+}
+
+/// Archive or restore a site. Archiving with live gates is a 409 —
+/// explicit beats cascading surprise; restore is unconditional.
+pub async fn set_site_archived(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((site_id, action)): Path<(Uuid, String)>,
+) -> AppResult<Json<Site>> {
+    require_permission(&state, &user, "sites:write").await?;
+    let archive = match action.as_str() {
+        "archive" => true,
+        "restore" => false,
+        _ => return Err(AppError::NotFound("unknown site action".to_owned())),
+    };
+    let Some(_) = site_archived(&state.pool, site_id).await? else {
+        return Err(AppError::NotFound("site not found".to_owned()));
+    };
+    if archive {
+        let live_gates: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM gates WHERE site_id = $1 AND archived_at IS NULL")
+                .bind(site_id)
+                .fetch_one(&state.pool)
+                .await
+                .map_err(AppError::Db)?;
+        if live_gates > 0 {
+            return Err(AppError::Conflict(format!(
+                "site has {live_gates} live gate(s); archive them first"
+            )));
+        }
+    }
+    let row: Option<(Uuid, String, String, Ts, Option<Ts>)> = sqlx::query_as(
+        "UPDATE sites SET archived_at = CASE WHEN $1 THEN now() ELSE NULL END WHERE id = $2
+         RETURNING id, name, location, created_at, archived_at",
+    )
+    .bind(archive)
+    .bind(site_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some((id, name, location, created_at, archived_at)) = row else {
+        return Err(AppError::NotFound("site not found".to_owned()));
+    };
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        if archive { "site.archived" } else { "site.restored" },
+        "site",
+        Some(id),
+        serde_json::json!({"name": name}),
+    )
+    .await;
+    state.hub.publish(&super::events::HubEvent::Topology { at: chrono::Utc::now() });
+    Ok(Json(Site { id, name, location, created_at, archived_at }))
+}
+
+/// Archive or restore a gate scoped to its site (no cross-site mutation).
+pub async fn set_gate_archived(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((site_id, gate_id, action)): Path<(Uuid, Uuid, String)>,
+) -> AppResult<Json<Gate>> {
+    require_permission(&state, &user, "gates:write").await?;
+    let archive = match action.as_str() {
+        "archive" => true,
+        "restore" => false,
+        _ => return Err(AppError::NotFound("unknown gate action".to_owned())),
+    };
+    let row: Option<(Uuid, Uuid, String, String, Ts, Option<Ts>)> = sqlx::query_as(
+        "UPDATE gates SET archived_at = CASE WHEN $1 THEN now() ELSE NULL END
+         WHERE id = $2 AND site_id = $3
+         RETURNING id, site_id, name, direction, created_at, archived_at",
+    )
+    .bind(archive)
+    .bind(gate_id)
+    .bind(site_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some((id, gate_site, name, direction_str, created_at, archived_at)) = row else {
+        return Err(AppError::NotFound("gate not found at this site".to_owned()));
+    };
+    let direction = GateDirection::parse(&direction_str).unwrap_or(GateDirection::Entry);
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        if archive { "gate.archived" } else { "gate.restored" },
+        "gate",
+        Some(id),
+        serde_json::json!({"name": name}),
+    )
+    .await;
+    state.hub.publish(&super::events::HubEvent::Topology { at: chrono::Utc::now() });
+    Ok(Json(Gate { id, site_id: gate_site, name, direction, created_at, archived_at }))
 }

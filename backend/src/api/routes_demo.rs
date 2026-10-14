@@ -27,8 +27,9 @@ pub async fn reset_demo(
             "demo reset refused with APP_ENV=production".to_owned(),
         ));
     }
-    // Children first; users last (audit.actor SET NULL keeps the trail table
-    // droppable — but we truncate audit too, so order is belt-and-braces).
+    // Children first; users last (audit.actor is RESTRICT — plain DELETE of
+    // an audited user fails, so TRUNCATE ... CASCADE per table is required;
+    // audit itself is truncated too, so order is belt-and-braces).
     let tables = [
         "audit_log",
         "face_embeddings",

@@ -6,6 +6,7 @@ export interface Site {
   name: string
   location: string
   created_at: string
+  archived_at: string | null
 }
 
 export interface Gate {
@@ -14,6 +15,7 @@ export interface Gate {
   name: string
   direction: 'entry' | 'exit' | 'both'
   created_at: string
+  archived_at: string | null
 }
 
 async function getJson<T>(path: string): Promise<T> {

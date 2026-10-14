@@ -14,6 +14,8 @@ pub enum AppError {
     NotFound(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    #[error("gone: {0}")]
+    Gone(String),
     #[error("bad request: {0}")]
     BadRequest(String),
     #[error(transparent)]
@@ -29,6 +31,7 @@ impl IntoResponse for AppError {
             Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             Self::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
+            Self::Gone(msg) => (StatusCode::GONE, msg.clone()),
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             Self::Db(_) => (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_owned()),
             Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_owned()),

@@ -88,6 +88,36 @@ export default function Dashboard() {
     gatesQuery.refetch()
   }
 
+  async function flipSite(site: { id: string; archived_at: string | null }) {
+    setNotice(null)
+    const action = site.archived_at ? 'restore' : 'archive'
+    const res = await apiFetch(`/sites/${site.id}/archive/${action}`, { method: 'POST' })
+    if (!res.ok) {
+      const body: unknown = await res.json().catch(() => ({}))
+      const err =
+        body !== null && typeof body === 'object' && 'error' in body ? body.error : null
+      setNotice(typeof err === 'string' && err.length > 0 ? err : `Could not ${action} site`)
+      return
+    }
+    sitesQuery.refetch()
+  }
+
+  async function flipGate(gate: { id: string; site_id: string; archived_at: string | null }) {
+    setNotice(null)
+    const action = gate.archived_at ? 'restore' : 'archive'
+    const res = await apiFetch(`/sites/${gate.site_id}/gates/${gate.id}/archive/${action}`, {
+      method: 'POST',
+    })
+    if (!res.ok) {
+      const body: unknown = await res.json().catch(() => ({}))
+      const err =
+        body !== null && typeof body === 'object' && 'error' in body ? body.error : null
+      setNotice(typeof err === 'string' && err.length > 0 ? err : `Could not ${action} gate`)
+      return
+    }
+    gatesQuery.refetch()
+  }
+
   return (
     <main className="min-h-screen bg-paper">
       <header className="flex items-center justify-between border-b-2 border-ink bg-ink px-6 py-4 text-paper">
@@ -129,18 +159,21 @@ export default function Dashboard() {
           ) : null}
           <ul className="mt-3 grid gap-3 md:grid-cols-2">
             {sites.map((site) => (
-              <li key={site.id}>
-                <button
-                  onClick={() => setSiteId(site.id)}
-                  className={`w-full border-2 px-4 py-3 text-left ${
-                    activeSiteId === site.id ? 'border-signal bg-white' : 'border-ink bg-white'
-                  }`}
-                >
+              <li key={site.id} className={`border-2 px-4 py-3 ${activeSiteId === site.id ? 'border-signal bg-white' : 'border-ink bg-white'}`}>
+                <button onClick={() => setSiteId(site.id)} className="w-full text-left">
                   <span className="font-display text-xl uppercase">{site.name}</span>
                   <span className="block font-ledger text-xs text-neutral-500">
                     {site.location || '—'}
                   </span>
                 </button>
+                {canWrite ? (
+                  <button
+                    onClick={() => flipSite(site)}
+                    className="mt-2 border border-ink px-2 py-0.5 font-ledger text-[11px] uppercase"
+                  >
+                    {site.archived_at ? 'Restore' : 'Archive'}
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -192,10 +225,10 @@ export default function Dashboard() {
           ) : (
             <ol className="mt-3 divide-y-2 divide-ink border-y-2 border-ink bg-white">
               {(gatesQuery.data ?? []).map((gate, i) => (
-                <li key={gate.id}>
+                <li key={gate.id} className="flex items-center gap-2 px-4 py-3">
                   <button
                     onClick={() => setGateId(gate.id)}
-                    className={`flex w-full items-baseline gap-4 px-4 py-3 text-left ${
+                    className={`flex flex-1 items-baseline gap-4 text-left ${
                       gateId === gate.id ? 'bg-amber-50' : ''
                     }`}
                   >
@@ -205,6 +238,14 @@ export default function Dashboard() {
                   <span className="font-display text-xl uppercase">{gate.name}</span>
                     <span className="ml-auto font-ledger text-xs uppercase">{gate.direction}</span>
                   </button>
+                  {canWrite ? (
+                    <button
+                      onClick={() => flipGate(gate)}
+                      className="border border-ink px-2 py-0.5 font-ledger text-[11px] uppercase"
+                    >
+                      {gate.archived_at ? 'Restore' : 'Archive'}
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ol>

@@ -279,13 +279,17 @@ pub async fn create_incident(
             return Err(AppError::BadRequest("site mismatch".to_owned()));
         }
     }
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM sites WHERE id = $1)")
-        .bind(site_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(AppError::Db)?;
-    if !exists {
+    let site: Option<Option<DateTime<Utc>>> =
+        sqlx::query_scalar("SELECT archived_at FROM sites WHERE id = $1")
+            .bind(site_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    let Some(archived) = site else {
         return Err(AppError::NotFound("site not found".to_owned()));
+    };
+    if archived.is_some() {
+        return Err(AppError::Gone("site is archived".to_owned()));
     }
     let row: IncidentRow = sqlx::query_as(
         "INSERT INTO incidents (site_id, title, description, suspect_application_id, created_by)

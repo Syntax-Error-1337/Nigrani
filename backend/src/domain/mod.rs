@@ -58,6 +58,8 @@ pub struct Site {
     pub name: String,
     pub location: String,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +69,8 @@ pub struct Gate {
     pub name: String,
     pub direction: GateDirection,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
