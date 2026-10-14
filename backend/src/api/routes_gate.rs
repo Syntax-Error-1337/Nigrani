@@ -21,6 +21,12 @@ pub struct EntryLog {
     pub id: Uuid,
     pub gate_id: Uuid,
     pub application_id: Option<Uuid>,
+    /// Plaintext holder identity (names were never encrypted). None for
+    /// manual entries or unlinked/purged applications.
+    #[serde(default)]
+    pub holder_name: Option<String>,
+    #[serde(default)]
+    pub holder_org: Option<String>,
     pub direction: GateDirection,
     pub method: EntryMethod,
     pub snapshot_key: String,
@@ -70,12 +76,15 @@ pub struct LogFilter {
     pub offset: Option<i64>,
 }
 
-/// Raw `entry_logs` row; converted via [`EntryRow::into_log`].
+/// Raw `entry_logs` row (holder identity LEFT JOINed); converted via
+/// [`EntryRow::into_log`].
 #[derive(Debug, sqlx::FromRow)]
 struct EntryRow {
     id: Uuid,
     gate_id: Uuid,
     application_id: Option<Uuid>,
+    holder_name: Option<String>,
+    holder_org: Option<String>,
     direction: String,
     method: String,
     snapshot_key: String,
@@ -89,6 +98,8 @@ impl EntryRow {
             id: self.id,
             gate_id: self.gate_id,
             application_id: self.application_id,
+            holder_name: self.holder_name,
+            holder_org: self.holder_org,
             direction: if self.direction == "exit" {
                 GateDirection::Exit
             } else {
@@ -176,10 +187,10 @@ pub async fn record_event(
             }
         }
     }
-    let row: EntryRow = sqlx::query_as(
+    let inserted: (Uuid,) = sqlx::query_as(
         "INSERT INTO entry_logs (gate_id, application_id, direction, method, snapshot_key, recorded_by)
          VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, gate_id, application_id, direction, method, snapshot_key, recorded_by, recorded_at",
+         RETURNING id",
     )
         .bind(gate_id)
         .bind(application_id)
@@ -190,7 +201,10 @@ pub async fn record_event(
         .fetch_one(&state.pool)
         .await
         .map_err(AppError::Db)?;
-    let log = row.into_log();
+    // Re-select with the holder join so POST and GET share one shape.
+    let log = load_log(&state.pool, inserted.0)
+        .await?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("entry log vanished after insert")))?;
     super::routes_audit::record(
         &state.pool, Some(user.id), "gate.event", "entry_log", Some(log.id),
         serde_json::json!({"gate_id": gate_id, "direction": log.direction.as_str(), "method": log.method.as_str()}),
@@ -206,6 +220,22 @@ pub async fn record_event(
     Ok(Json(log))
 }
 
+/// One joined row by id (holder identity included, None when unlinked).
+async fn load_log(pool: &sqlx::PgPool, id: Uuid) -> AppResult<Option<EntryLog>> {
+    let row: Option<EntryRow> = sqlx::query_as(
+        "SELECT l.id, l.gate_id, l.application_id, k.full_name AS holder_name,
+                k.organization AS holder_org, l.direction, l.method,
+                l.snapshot_key, l.recorded_by, l.recorded_at
+         FROM entry_logs l LEFT JOIN kyc_applications k ON k.id = l.application_id
+         WHERE l.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::Db)?;
+    Ok(row.map(EntryRow::into_log))
+}
+
 pub async fn gate_log(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -215,9 +245,11 @@ pub async fn gate_log(
     require_permission(&state, &user, "gates:read").await?;
     let (limit, offset) = super::paging::resolve(filter.limit, filter.offset, 50)?;
     let rows: Vec<EntryRow> = sqlx::query_as(
-            "SELECT l.id, l.gate_id, l.application_id, l.direction, l.method,
+            "SELECT l.id, l.gate_id, l.application_id, k.full_name AS holder_name,
+                    k.organization AS holder_org, l.direction, l.method,
                     l.snapshot_key, l.recorded_by, l.recorded_at
              FROM entry_logs l JOIN gates g ON g.id = l.gate_id
+             LEFT JOIN kyc_applications k ON k.id = l.application_id
              WHERE l.gate_id = $1 AND g.site_id = $2
              ORDER BY l.recorded_at DESC LIMIT $3 OFFSET $4",
         )

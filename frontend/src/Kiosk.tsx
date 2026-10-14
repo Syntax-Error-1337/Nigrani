@@ -237,6 +237,9 @@ export default function Kiosk({
               <li key={e.id} className="flex items-center gap-2 py-1 font-ledger text-xs">
                 <span className="uppercase">{e.direction}</span>
                 <span>{e.method === 'press_card' ? 'card' : 'manual'}</span>
+                {e.holder_name ? (
+                  <span className="font-display uppercase" title={e.holder_org ?? ''}>{e.holder_name}</span>
+                ) : null}
                 {e.snapshot_key ? (
                   <button
                     onClick={() => openPreview(e.snapshot_key)}

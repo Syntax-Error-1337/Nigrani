@@ -455,6 +455,8 @@ async fn gate_event_card_and_manual_roundtrip() {
     let entry: Value = res.json().await.unwrap();
     assert_eq!(entry["direction"], "entry");
     assert_eq!(entry["application_id"], app_id);
+    assert!(entry["holder_name"].is_string(), "card crossing names its holder");
+    assert!(entry["holder_org"].is_string());
 
     // Tampered card denied.
     let mut bad = card.clone();
@@ -511,7 +513,9 @@ async fn gate_event_card_and_manual_roundtrip() {
         .unwrap();
     assert_eq!(log.as_array().unwrap().len(), 2);
     assert_eq!(log[0]["direction"], "exit");
+    assert!(log[0]["holder_name"].is_null(), "manual crossing names nobody");
     assert_eq!(log[1]["method"], "press_card");
+    assert!(log[1]["holder_name"].is_string(), "log list joins holder names");
 }
 
 #[tokio::test]

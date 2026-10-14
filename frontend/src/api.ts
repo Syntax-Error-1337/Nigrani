@@ -93,6 +93,8 @@ export interface EntryLog {
   id: string
   gate_id: string
   application_id: string | null
+  holder_name: string | null
+  holder_org: string | null
   direction: 'entry' | 'exit' | 'both'
   method: 'press_card' | 'manual'
   snapshot_key: string
