@@ -236,6 +236,15 @@ pub async fn upload_snapshot(
     }
     let key = format!("{}.jpg", Uuid::new_v4());
     store.put_jpeg(&key, body.to_vec()).await?;
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "snapshot.uploaded",
+        "snapshot",
+        None,
+        serde_json::json!({"key": key, "bytes": body.len()}),
+    )
+    .await;
     Ok(Json(serde_json::json!({ "key": key })))
 }
 
@@ -273,4 +282,62 @@ pub async fn download_snapshot(
 
 fn is_jpeg(bytes: &[u8]) -> bool {
     bytes.len() >= 4 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CollectBody {
+    /// Default true: report only. False deletes orphans.
+    pub dry_run: Option<bool>,
+}
+
+/// Orphan collection: bucket keys with no `entry_logs.snapshot_key`
+/// reference. SuperAdmin-only; dry-run by default. Reports counts (never
+/// key lists — keys stay out of the audit trail).
+pub async fn collect_snapshots(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(body): Json<CollectBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    if user.role != crate::domain::Role::SuperAdmin {
+        return Err(AppError::Forbidden("snapshot collection is SuperAdmin-only".to_owned()));
+    }
+    let Some(store) = &state.snapshots else {
+        return Err(AppError::Internal(anyhow::anyhow!("snapshot storage unavailable")));
+    };
+    let keys = store.list_keys().await?;
+    let referenced: std::collections::HashSet<String> = sqlx::query_scalar(
+        "SELECT DISTINCT snapshot_key FROM entry_logs WHERE snapshot_key <> ''",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .into_iter()
+    .collect();
+    let orphans: Vec<String> =
+        keys.into_iter().filter(|k| !referenced.contains(k)).collect();
+    let dry_run = body.dry_run.unwrap_or(true);
+    let deleted = if dry_run { 0 } else { store.delete_keys(&orphans).await? };
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "snapshots.collected",
+        "snapshot",
+        None,
+        serde_json::json!({
+            "dry_run": dry_run,
+            "orphans": orphans.len(),
+            "referenced": referenced.len(),
+            "deleted": deleted,
+        }),
+    )
+    .await;
+    // Dry-run caps the sample (counts are exact; the list is a preview).
+    let sample: Vec<String> = orphans.into_iter().take(500).collect();
+    Ok(Json(serde_json::json!({
+        "dry_run": dry_run,
+        "orphan_count": sample.len(),
+        "referenced_count": referenced.len(),
+        "deleted": deleted,
+        "orphans": if dry_run { sample } else { Vec::<String>::new() },
+    })))
 }

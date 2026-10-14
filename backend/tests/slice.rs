@@ -2408,3 +2408,32 @@ async fn press_card_revocation_kills_scans() {
         .unwrap();
     assert_eq!(res.status(), 200);
 }
+
+#[tokio::test]
+async fn snapshot_collect_without_storage_is_unavailable() {
+    // Test servers carry snapshots: None → collect fails the same closed
+    // way as upload (500, not a panic). Real collection is proven live
+    // against LocalStack (orphan dry-run + delete + attached survival).
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let gate = srv.login("gate").await;
+    let res = srv
+        .client
+        .post(format!("{}/admin/snapshots/collect", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "dry_run": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 500);
+    // Non-SuperAdmin refused before the storage check.
+    let res = srv
+        .client
+        .post(format!("{}/admin/snapshots/collect", srv.base))
+        .bearer_auth(&gate)
+        .json(&json!({ "dry_run": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+}

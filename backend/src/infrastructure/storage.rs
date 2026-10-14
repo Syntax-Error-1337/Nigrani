@@ -81,4 +81,59 @@ impl SnapshotStore {
             .map(|data| data.to_vec())
             .map_err(|e| AppError::Internal(anyhow::anyhow!("snapshot read failed: {e}")))
     }
+
+    /// Every key in the bucket (paginated ListObjectsV2, 1000/page).
+    /// Used by orphan collection; buckets stay small (gate captures only).
+    pub async fn list_keys(&self) -> AppResult<Vec<String>> {
+        let mut keys = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let mut req = self.client.list_objects_v2().bucket(&self.bucket).max_keys(1000);
+            if let Some(t) = token {
+                req = req.continuation_token(t);
+            }
+            let out = req
+                .send()
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("snapshot list failed: {e}")))?;
+            for obj in out.contents() {
+                if let Some(k) = obj.key() {
+                    keys.push(k.to_owned());
+                }
+            }
+            if out.is_truncated().unwrap_or(false) {
+                token = out.next_continuation_token().map(str::to_owned);
+            } else {
+                break;
+            }
+        }
+        Ok(keys)
+    }
+
+    /// Batch-delete (DeleteObjects, ≤1000/batch). Missing keys are skipped
+    /// by S3; returns the count actually deleted.
+    pub async fn delete_keys(&self, keys: &[String]) -> AppResult<i64> {
+        use aws_sdk_s3::types::{Delete, ObjectIdentifier};
+        let mut deleted = 0i64;
+        for chunk in keys.chunks(1000) {
+            let mut del = Delete::builder();
+            for k in chunk {
+                del = del.objects(ObjectIdentifier::builder().key(k).build().map_err(|e| {
+                    AppError::Internal(anyhow::anyhow!("snapshot delete ident failed: {e}"))
+                })?);
+            }
+            let out = self
+                .client
+                .delete_objects()
+                .bucket(&self.bucket)
+                .delete(del.build().map_err(|e| {
+                    AppError::Internal(anyhow::anyhow!("snapshot delete build failed: {e}"))
+                })?)
+                .send()
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("snapshot delete failed: {e}")))?;
+            deleted += out.deleted().len() as i64;
+        }
+        Ok(deleted)
+    }
 }
