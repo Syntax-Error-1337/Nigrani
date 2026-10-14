@@ -10,6 +10,23 @@ function apiError(body: unknown, fallback: string): string {
   return fallback
 }
 
+/// Operator copy per denial class: forgery confronts, revocation and
+/// pending redirect. Server `reason` values are stable API (s24).
+function denialCopy(reason: unknown): string {
+  if (reason === 'revoked') return 'Card revoked — redirect holder to the press desk'
+  if (reason === 'not_approved') return 'Application not approved — redirect to accreditation'
+  return 'Card signature invalid — deny entry'
+}
+
+/// Record-time refusal mirrors the same copy (server messages are literal
+/// constants quoted in backend tests).
+function recordDenialCopy(serverMessage: string): string | null {
+  if (serverMessage.includes('press card revoked')) return denialCopy('revoked')
+  if (serverMessage.includes('not approved')) return denialCopy('not_approved')
+  if (serverMessage.includes('failed verification')) return denialCopy('bad_signature')
+  return null
+}
+
 function isPressCard(body: unknown): body is PressCard {
   if (body === null || typeof body !== 'object') return false
   return (
@@ -66,7 +83,9 @@ export default function Kiosk({
       setOk(`Verified — ${parsed.full_name}`)
     } else {
       setCard(null)
-      setNotice('Card signature invalid — deny entry')
+      const reason =
+        body !== null && typeof body === 'object' && 'reason' in body ? body.reason : null
+      setNotice(denialCopy(reason))
     }
   }
 
@@ -135,7 +154,11 @@ export default function Kiosk({
     })
     const body: unknown = await res.json().catch(() => ({}))
     if (!res.ok) {
-      setNotice(apiError(body, 'Could not record entry'))
+      const raw =
+        body !== null && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+          ? body.error
+          : ''
+      setNotice(recordDenialCopy(raw) ?? apiError(body, 'Could not record entry'))
       return
     }
     setOk(method === 'manual' ? 'Manual entry logged' : `Entry logged — ${card?.full_name}`)
