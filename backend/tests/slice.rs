@@ -2098,11 +2098,31 @@ async fn login_lockout_triggers_and_unlocks() {
     assert!(me["user"]["locked_until"].is_null());
 
     // Five consecutive failures → locked. Correct password now also 401.
+    // Hold a live refresh token across the lock transition: fresh login
+    // (counter is 0 after the reset above), then 5 strikes.
+    let res = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": name, "password": "victim-password-1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let body: Value = res.json().await.unwrap();
+    let live_refresh = body["refresh_token"].as_str().unwrap().to_owned();
     for _ in 0..5 {
         assert_eq!(bad("wrong-password-1").await, 401);
     }
     assert_eq!(bad("victim-password-1").await, 401, "locked: right password rejected");
-
+    // Refresh rotation ends at lock (401), even with a pre-lock token.
+    let res = srv
+        .client
+        .post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({ "refresh_token": live_refresh }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401, "locked: refresh rotation refused");
     // Non-SuperAdmin unlock refused; self-unlock refused.
     let gate = srv.login("gate").await;
     let res = srv

@@ -100,6 +100,13 @@ pub async fn login(
             .execute(&state.pool)
             .await
             .map_err(AppError::Db)?;
+            // Immediate session kill (mirrors deactivate): outstanding
+            // access JWTs run to their <=15-min expiry, but rotation ends.
+            sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
+                .bind(row.id)
+                .execute(&state.pool)
+                .await
+                .map_err(AppError::Db)?;
             super::routes_audit::record(&state.pool, Some(row.id), "login.locked", "session", None, serde_json::json!({"username": body.username, "strikes": strikes})).await;
         } else {
             sqlx::query("UPDATE users SET failed_logins = $1 WHERE id = $2")
@@ -184,6 +191,11 @@ pub async fn refresh(
     .await
     .map_err(AppError::Db)?;
     if !row.active {
+        return Err(AppError::Unauthorized("refresh token expired".to_owned()));
+    }
+    // Locked users cannot rotate (same indistinguishable body; the lock is
+    // owner-visible via /auth/me, never via auth responses).
+    if row.locked_until.is_some_and(|until| until > chrono::Utc::now()) {
         return Err(AppError::Unauthorized("refresh token expired".to_owned()));
     }
     let role = Role::from_name(&row.role)
