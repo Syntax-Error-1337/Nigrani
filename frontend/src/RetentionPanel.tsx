@@ -48,6 +48,11 @@ export default function RetentionPanel() {
       const purged: unknown = body.purged
       if (purged !== null && typeof purged === 'object') {
         const parts = Object.entries(purged).map(([k, v]) => `${k}: ${typeof v === 'number' ? v : '?'}`)
+        const extraKeys = ['snapshots_dereferenced', 'snapshots_deleted', 'snapshots_delete_failed'] as const
+        for (const k of extraKeys) {
+          const v: unknown = (body as Record<string, unknown>)[k]
+          if (typeof v === 'number' && v > 0) parts.push(`${k}: ${v}`)
+        }
         setReport(`Purged — ${parts.join(', ')}`)
         return
       }

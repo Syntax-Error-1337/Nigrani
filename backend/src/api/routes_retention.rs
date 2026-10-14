@@ -70,6 +70,15 @@ pub async fn set_policy(
 #[derive(Debug, Serialize)]
 pub struct PurgeReport {
     pub purged: std::collections::HashMap<String, i64>,
+    /// S3 keys dereferenced by THIS run's entry_log purge (were referenced
+    /// before, unreferenced after). Pre-existing orphans stay the
+    /// collector's job — attribution stays clean.
+    pub snapshots_dereferenced: i64,
+    /// Of those, actually deleted from S3 (0 when storage unconfigured;
+    /// the rest age into regular orphans for the next collect).
+    pub snapshots_deleted: i64,
+    /// S3 delete failures (DB purge already committed; counted, not fatal).
+    pub snapshots_delete_failed: i64,
 }
 
 /// Purge expired rows per policy, dependency order first (children before
@@ -92,7 +101,42 @@ pub async fn run_purge(
     purged.insert("incident_links".into(), purge_older_than(&state, "incident_links", "added_at", window("incident_links")).await?);
     purged.insert("incidents".into(), purge_older_than(&state, "incidents", "created_at", window("incidents")).await?);
     purged.insert("face_embeddings".into(), purge_older_than(&state, "face_embeddings", "captured_at", window("face_embeddings")).await?);
-    purged.insert("entry_logs".into(), purge_older_than(&state, "entry_logs", "recorded_at", window("entry_logs")).await?);
+    let log_window = window("entry_logs");
+    let doomed_keys: Vec<String> = if log_window > 0 {
+        sqlx::query_scalar(
+            "SELECT DISTINCT snapshot_key FROM entry_logs
+             WHERE recorded_at < now() - ($1 || ' days')::interval AND snapshot_key <> ''",
+        )
+        .bind(log_window.to_string())
+        .fetch_all(&state.pool)
+        .await
+        .map_err(AppError::Db)?
+    } else {
+        Vec::new()
+    };
+    purged.insert("entry_logs".into(), purge_older_than(&state, "entry_logs", "recorded_at", log_window).await?);
+    // Post-purge diff: keys this run dereferenced (referenced before, gone now).
+    let still_referenced: std::collections::HashSet<String> = sqlx::query_scalar(
+        "SELECT DISTINCT snapshot_key FROM entry_logs WHERE snapshot_key <> ''",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .into_iter()
+    .collect();
+    let dereferenced: Vec<String> =
+        doomed_keys.into_iter().filter(|k| !still_referenced.contains(k)).collect();
+    let snapshots_dereferenced = dereferenced.len() as i64;
+    let (snapshots_deleted, snapshots_delete_failed) = match &state.snapshots {
+        Some(store) if !dereferenced.is_empty() => match store.delete_keys(&dereferenced).await {
+            Ok(n) => (n, dereferenced.len() as i64 - n),
+            Err(e) => {
+                tracing::error!(error = %e, "purge snapshot delete failed; keys age into orphans");
+                (0, dereferenced.len() as i64)
+            }
+        },
+        _ => (0, 0),
+    };
     purged.insert("kyc_applications".into(), purge_older_than(&state, "kyc_applications", "submitted_at", window("kyc_applications")).await?);
     purged.insert(
         "refresh_tokens".into(),
@@ -104,10 +148,19 @@ pub async fn run_purge(
         "retention.purge",
         "retention",
         None,
-        serde_json::json!({ "purged": purged }),
+        serde_json::json!({
+            "purged": purged,
+            "snapshots_dereferenced": snapshots_dereferenced,
+            "snapshots_deleted": snapshots_deleted,
+        }),
     )
     .await;
-    Ok(Json(PurgeReport { purged }))
+    Ok(Json(PurgeReport {
+        purged,
+        snapshots_dereferenced,
+        snapshots_deleted,
+        snapshots_delete_failed,
+    }))
 }
 
 async fn purge_older_than(
