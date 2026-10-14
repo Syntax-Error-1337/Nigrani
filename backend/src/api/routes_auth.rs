@@ -28,6 +28,9 @@ pub struct MeResponse {
     pub id: Uuid,
     pub username: String,
     pub role: Role,
+    /// Owner-visible lock state (own row only — no oracle for others).
+    /// None when never locked or the lock has expired.
+    pub locked_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 #[derive(Debug, Deserialize)]
 pub struct RefreshBody {
@@ -42,7 +45,13 @@ struct DbUser {
     password_hash: String,
     role: String,
     active: bool,
+    failed_logins: i32,
+    locked_until: Option<chrono::DateTime<chrono::Utc>>,
 }
+
+/// Strikes before a lock engages; lock length after the final strike.
+pub const LOCKOUT_STRIKES: i32 = 5;
+pub const LOCKOUT_MINUTES: i64 = 15;
 
 pub async fn login(
     State(state): State<AppState>,
@@ -55,7 +64,8 @@ pub async fn login(
         return Err(AppError::BadRequest("username or password too long".to_owned()));
     }
     let row: Option<DbUser> = sqlx::query_as::<_, DbUser>(
-        r#"SELECT u.id, u.username, u.password_hash, r.name AS role, u.active
+        r#"SELECT u.id, u.username, u.password_hash, r.name AS role, u.active,
+                  u.failed_logins, u.locked_until
            FROM users u JOIN roles r ON r.id = u.role_id
            WHERE u.username = $1"#,
     )
@@ -72,9 +82,43 @@ pub async fn login(
         super::routes_audit::record(&state.pool, Some(row.id), "login.failed", "session", None, serde_json::json!({"username": body.username, "inactive": true})).await;
         return Err(AppError::Unauthorized("invalid credentials".to_owned()));
     }
+    // Locked accounts fail identically too: the lock is owner-visible via
+    // `GET /auth/me`, never via the login response.
+    if row.locked_until.is_some_and(|until| until > chrono::Utc::now()) {
+        super::routes_audit::record(&state.pool, Some(row.id), "login.locked", "session", None, serde_json::json!({"username": body.username})).await;
+        return Err(AppError::Unauthorized("invalid credentials".to_owned()));
+    }
     if let Err(e) = verify_password(&row.password_hash, &body.password) {
-        super::routes_audit::record(&state.pool, Some(row.id), "login.failed", "session", None, serde_json::json!({"username": body.username})).await;
+        let strikes = row.failed_logins + 1;
+        if strikes >= LOCKOUT_STRIKES {
+            sqlx::query(
+                "UPDATE users SET failed_logins = $1, locked_until = now() + ($2 || ' minutes')::interval WHERE id = $3",
+            )
+            .bind(strikes)
+            .bind(LOCKOUT_MINUTES.to_string())
+            .bind(row.id)
+            .execute(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+            super::routes_audit::record(&state.pool, Some(row.id), "login.locked", "session", None, serde_json::json!({"username": body.username, "strikes": strikes})).await;
+        } else {
+            sqlx::query("UPDATE users SET failed_logins = $1 WHERE id = $2")
+                .bind(strikes)
+                .bind(row.id)
+                .execute(&state.pool)
+                .await
+                .map_err(AppError::Db)?;
+            super::routes_audit::record(&state.pool, Some(row.id), "login.failed", "session", None, serde_json::json!({"username": body.username})).await;
+        }
         return Err(e);
+    }
+    // Success clears the strike counter.
+    if row.failed_logins > 0 {
+        sqlx::query("UPDATE users SET failed_logins = 0 WHERE id = $1")
+            .bind(row.id)
+            .execute(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
     }
     super::routes_audit::record(&state.pool, Some(row.id), "login.ok", "session", None, serde_json::json!({"username": body.username})).await;
     let role = Role::from_name(&row.role)
@@ -91,7 +135,7 @@ pub async fn login(
     Ok(Json(LoginResponse {
         access_token,
         refresh_token,
-        user: MeResponse { id: row.id, username: row.username, role },
+        user: MeResponse { id: row.id, username: row.username, role, locked_until: None },
     }))
 }
 
@@ -130,7 +174,8 @@ pub async fn refresh(
         .await
         .map_err(AppError::Db)?;
     let row: DbUser = sqlx::query_as::<_, DbUser>(
-        r#"SELECT u.id, u.username, u.password_hash, r.name AS role, u.active
+        r#"SELECT u.id, u.username, u.password_hash, r.name AS role, u.active,
+                  u.failed_logins, u.locked_until
            FROM users u JOIN roles r ON r.id = u.role_id
            WHERE u.id = $1"#,
     )
@@ -155,7 +200,7 @@ pub async fn refresh(
     Ok(Json(LoginResponse {
         access_token,
         refresh_token,
-        user: MeResponse { id: row.id, username: row.username, role },
+        user: MeResponse { id: row.id, username: row.username, role, locked_until: None },
     }))
 }
 
@@ -190,8 +235,24 @@ pub async fn logout_all(
     Ok(Json(serde_json::json!({ "logged_out": true, "sessions_revoked": n })))
 }
 
-pub async fn me(AuthUser(user): AuthUser) -> Json<MeResponse> {
-    Json(MeResponse { id: user.id, username: user.username, role: user.role })
+pub async fn me(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<MeResponse>> {
+    let locked: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT locked_until FROM users WHERE id = $1")
+            .bind(user.id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?
+            .flatten()
+            .filter(|until| *until > chrono::Utc::now());
+    Ok(Json(MeResponse {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        locked_until: locked,
+    }))
 }
 
 /// Permission-gated endpoint: only roles with `users:read` pass.
@@ -200,17 +261,18 @@ pub async fn list_users(
     AuthUser(user): AuthUser,
 ) -> AppResult<Json<Vec<super::routes_users::UserView>>> {
     require_permission(&state, &user, "users:read").await?;
-    let rows: Vec<(Uuid, String, String, bool)> = sqlx::query_as(
-        r#"SELECT u.id, u.username, r.name AS role, u.active
+    let rows: Vec<super::routes_users::UserRow> = sqlx::query_as(
+        r#"SELECT u.id, u.username, r.name AS role, u.active, u.failed_logins, u.locked_until
            FROM users u JOIN roles r ON r.id = u.role_id ORDER BY u.username"#,
     )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(AppError::Db)?;
+        .fetch_all(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
     let mut out = Vec::with_capacity(rows.len());
-    for (id, username, role_name, active) in rows {
-        let Some(role) = Role::from_name(&role_name) else { continue };
-        out.push(super::routes_users::UserView { id, username, role, active });
+    for row in rows {
+        if let Ok(view) = row.into_view() {
+            out.push(view);
+        }
     }
     Ok(Json(out))
 }

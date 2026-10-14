@@ -2005,3 +2005,90 @@ async fn kyc_duplicate_document_blocked_then_reapplies() {
         .expect("decided row in queue");
     assert_eq!(row["prior_decisions"], 0, "no OTHER decided rows share it yet");
 }
+
+#[tokio::test]
+async fn login_lockout_triggers_and_unlocks() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+
+    // Fresh victim via provisioning (SuperAdmin-only create).
+    let name = format!("lockme_{}", uuid::Uuid::new_v4().to_string().replace('-', "")[..12].to_owned());
+    let created: Value = srv
+        .client
+        .post(format!("{}/users", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "username": name, "password": "victim-password-1", "role": "GateOperator" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let uid = created["id"].as_str().unwrap().to_owned();
+    let bad = |pw: &str| {
+        let client = &srv.client;
+        let base = srv.base.clone();
+        let name = name.clone();
+        let pw = pw.to_owned();
+        async move {
+            client
+                .post(format!("{base}/auth/login"))
+                .json(&json!({ "username": name, "password": pw }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+
+    // Four strikes: still plain 401s, counter climbs, no lock.
+    for _ in 0..4 {
+        assert_eq!(bad("wrong-password-1").await, 401);
+    }
+    // A success here resets the counter (proves the reset path).
+    let res = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": name, "password": "victim-password-1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let me: Value = res.json().await.unwrap();
+    assert!(me["user"]["locked_until"].is_null());
+
+    // Five consecutive failures → locked. Correct password now also 401.
+    for _ in 0..5 {
+        assert_eq!(bad("wrong-password-1").await, 401);
+    }
+    assert_eq!(bad("victim-password-1").await, 401, "locked: right password rejected");
+
+    // Non-SuperAdmin unlock refused; self-unlock refused.
+    let gate = srv.login("gate").await;
+    let res = srv
+        .client
+        .post(format!("{}/users/{uid}/unlock", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+    let res = srv
+        .client
+        .post(format!("{}/users/{uid}/unlock", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    // Login works again after unlock.
+    let res = srv
+        .client
+        .post(format!("{}/auth/login", srv.base))
+        .json(&json!({ "username": name, "password": "victim-password-1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+}

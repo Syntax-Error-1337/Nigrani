@@ -6,6 +6,8 @@ interface Operator {
   username: string
   role: string
   active: boolean
+  failed_logins: number
+  locked_until: string | null
 }
 
 function apiError(body: unknown, fallback: string): string {
@@ -54,6 +56,16 @@ export default function OperatorsPanel() {
     load()
   }
 
+  async function unlock(op: Operator) {
+    setNotice(null)
+    const res = await apiFetch(`/users/${op.id}/unlock`, { method: 'POST' })
+    if (!res.ok) {
+      setNotice(apiError(await res.json().catch(() => ({})), 'Could not unlock'))
+      return
+    }
+    load()
+  }
+
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
@@ -68,9 +80,19 @@ export default function OperatorsPanel() {
           <li key={op.id} className="flex items-baseline gap-3 px-4 py-2 font-ledger text-xs">
             <span className={op.active ? '' : 'text-neutral-400 line-through'}>{op.username}</span>
             <span className="uppercase">{op.role}</span>
+            {op.locked_until ? (
+              <span className="border border-deny bg-red-50 px-1 uppercase text-deny" title={`Locked until ${op.locked_until} · ${op.failed_logins} strikes`}>
+                locked
+              </span>
+            ) : null}
             <button onClick={() => flip(op)} className="ml-auto border border-ink px-2 py-1 uppercase">
               {op.active ? 'Deactivate' : 'Reactivate'}
             </button>
+            {op.locked_until ? (
+              <button onClick={() => unlock(op)} className="border border-ink bg-ink px-2 py-1 uppercase text-paper">
+                Unlock
+              </button>
+            ) : null}
           </li>
         ))}
       </ol>

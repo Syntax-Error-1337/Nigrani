@@ -24,6 +24,38 @@ pub struct UserView {
     pub username: String,
     pub role: Role,
     pub active: bool,
+    pub failed_logins: i32,
+    pub locked_until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub fn into_view(
+    id: Uuid,
+    username: String,
+    role_name: &str,
+    active: bool,
+    failed_logins: i32,
+    locked_until: Option<chrono::DateTime<chrono::Utc>>,
+) -> AppResult<UserView> {
+    let role = Role::from_name(role_name)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role")))?;
+    Ok(UserView { id, username, role, active, failed_logins, locked_until })
+}
+
+/// Raw `users` row for operator views (lock state included).
+#[derive(Debug, sqlx::FromRow)]
+pub struct UserRow {
+    id: Uuid,
+    username: String,
+    role: String,
+    active: bool,
+    failed_logins: i32,
+    locked_until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl UserRow {
+    pub fn into_view(self) -> AppResult<UserView> {
+        into_view(self.id, self.username, &self.role, self.active, self.failed_logins, self.locked_until)
+    }
 }
 
 fn valid_username(name: &str) -> bool {
@@ -89,7 +121,14 @@ pub async fn create_user(
         serde_json::json!({"username": body.username, "role": role.as_str()}),
     )
     .await;
-    Ok(Json(UserView { id, username: body.username, role, active: true }))
+    Ok(Json(UserView {
+        id,
+        username: body.username,
+        role,
+        active: true,
+        failed_logins: 0,
+        locked_until: None,
+    }))
 }
 
 pub async fn set_active(
@@ -106,38 +145,72 @@ pub async fn set_active(
     if id == user.id {
         return Err(AppError::BadRequest("cannot change your own status".to_owned()));
     }
-    let row: Option<(Uuid, String, String, bool)> = sqlx::query_as(
+    let row: Option<UserRow> = sqlx::query_as(
         "UPDATE users SET active = $1 WHERE id = $2
-         RETURNING id, username, (SELECT name FROM roles WHERE id = users.role_id), active",
+         RETURNING id, username, (SELECT name FROM roles WHERE id = users.role_id) AS role, active,
+            failed_logins, locked_until",
     )
-    .bind(active)
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(AppError::Db)?;
-    let Some((uid, username, role_name, active)) = row else {
+        .bind(active)
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let Some(row) = row else {
         return Err(AppError::NotFound("user not found".to_owned()));
     };
     // Immediate session kill on deactivate.
-    if !active {
+    if !row.active {
         sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1")
-            .bind(uid)
+            .bind(row.id)
             .execute(&state.pool)
             .await
             .map_err(AppError::Db)?;
     }
-    let role = Role::from_name(&role_name)
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role")))?;
     super::routes_audit::record(
         &state.pool,
         Some(user.id),
-        if active { "user.reactivated" } else { "user.deactivated" },
+        if row.active { "user.reactivated" } else { "user.deactivated" },
         "user",
-        Some(uid),
-        serde_json::json!({"username": username}),
+        Some(row.id),
+        serde_json::json!({"username": row.username}),
     )
     .await;
-    Ok(Json(UserView { id: uid, username, role, active }))
+    row.into_view().map(Json)
+}
+
+/// Operator unlock for a locked account. SuperAdmin-side `users:write`;
+/// cannot unlock self (mirrors the set_active self-change rule).
+pub async fn unlock_user(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<UserView>> {
+    require_permission(&state, &user, "users:write").await?;
+    if id == user.id {
+        return Err(AppError::BadRequest("cannot change your own status".to_owned()));
+    }
+    let row: Option<UserRow> = sqlx::query_as(
+        "UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1
+         RETURNING id, username, (SELECT name FROM roles WHERE id = users.role_id) AS role, active,
+            failed_logins, locked_until",
+    )
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let Some(row) = row else {
+        return Err(AppError::NotFound("user not found".to_owned()));
+    };
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "user.unlocked",
+        "user",
+        Some(row.id),
+        serde_json::json!({"username": row.username}),
+    )
+    .await;
+    row.into_view().map(Json)
 }
 
 #[derive(Debug, Deserialize)]
