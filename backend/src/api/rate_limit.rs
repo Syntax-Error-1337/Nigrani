@@ -49,6 +49,12 @@ impl Limiter {
         Self::new(30, Duration::from_secs(60))
     }
 
+    /// 5MB JPEG ingest: generous for kiosk staging (one photo per human-rate
+    /// crossing), tight enough to blunt credential-compromise floods.
+    pub fn snapshot_upload() -> Self {
+        Self::new(30, Duration::from_secs(60))
+    }
+
     fn allow(&self, ip: IpAddr) -> bool {
         let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         // Opportunistic prune keeps the map bounded without a sweeper task.

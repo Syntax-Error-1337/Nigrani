@@ -59,6 +59,10 @@ pub fn router(state: AppState) -> Router {
         LimitRule { limiter: state.refresh_limiter.clone(), endpoint: "auth_refresh" },
         Router::new().route("/auth/refresh", post(refresh)),
     );
+    let snapshots = limited(
+        LimitRule { limiter: state.snapshot_limiter.clone(), endpoint: "snapshot_upload" },
+        Router::new().route("/snapshots", post(upload_snapshot)),
+    );
     Router::new()
         .route("/health", get(health))
         .route("/events", get(events_ws))
@@ -81,7 +85,6 @@ pub fn router(state: AppState) -> Router {
         .route("/kyc/verify", post(verify_press_card))
         .route("/sites/:site_id/gates/:gate_id/events", post(record_event))
         .route("/sites/:site_id/gates/:gate_id/log", get(gate_log))
-        .route("/snapshots", post(upload_snapshot))
         .route("/snapshots/:key", get(download_snapshot))
         .route("/snapshots/:key/share", get(share_snapshot))
         .route("/admin/snapshots/collect", post(collect_snapshots))
@@ -106,6 +109,7 @@ pub fn router(state: AppState) -> Router {
         .merge(kyc_submit)
         .merge(auth)
         .merge(refresh)
+        .merge(snapshots)
         .layer(axum::Extension(state.hub.clone()))
         .layer(axum::middleware::from_fn(request_id::request_id))
         .layer(CorsLayer::permissive())

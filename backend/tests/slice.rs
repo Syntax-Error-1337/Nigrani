@@ -26,6 +26,7 @@ async fn test_state() -> nigrani::api::state::AppState {
         kyc_limiter: nigrani::api::rate_limit::Limiter::kyc(),
         login_limiter: nigrani::api::rate_limit::Limiter::auth_login(),
         refresh_limiter: nigrani::api::rate_limit::Limiter::auth_refresh(),
+        snapshot_limiter: nigrani::api::rate_limit::Limiter::snapshot_upload(),
         grants: nigrani::api::state::GrantCache::builder()
             .time_to_live(std::time::Duration::from_secs(60))
             .build(),
@@ -2852,4 +2853,31 @@ async fn site_audit_includes_incident_trail() {
         .unwrap();
     assert!(other.as_array().unwrap().iter().any(|e| e["action"] == "incident.created"));
     assert!(other.as_array().unwrap().iter().all(|e| e["entity_id"] != iid));
+}
+
+#[tokio::test]
+async fn snapshot_upload_rate_limited() {
+    // Test server carries snapshots: None, so uploads fail closed BEFORE the
+    // limiter matters... except middleware runs FIRST: the 429 must win over
+    // the 500 once the quota burns. Upload tiny JPEGs (valid magic).
+    let srv = TestServer::spawn().await;
+    let gate = srv.login("gate").await;
+    let jpeg: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46];
+    let mut limited = false;
+    for _ in 0..35 {
+        let res = srv
+            .client
+            .post(format!("{}/snapshots", srv.base))
+            .bearer_auth(&gate)
+            .header("Content-Type", "image/jpeg")
+            .body(jpeg.clone())
+            .send()
+            .await
+            .unwrap();
+        if res.status() == 429 {
+            limited = true;
+            break;
+        }
+    }
+    assert!(limited, "expected 429 within 35 rapid uploads");
 }

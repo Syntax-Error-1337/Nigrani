@@ -16,6 +16,7 @@ pub struct AppState {
     pub kyc_limiter: super::rate_limit::Limiter,
     pub login_limiter: super::rate_limit::Limiter,
     pub refresh_limiter: super::rate_limit::Limiter,
+    pub snapshot_limiter: super::rate_limit::Limiter,
     /// Role-grant cache (60s TTL). Revocation propagates within the TTL;
     /// SuperAdmin bypass never consults it.
     pub grants: GrantCache,
@@ -61,6 +62,7 @@ impl AppState {
             kyc_limiter: super::rate_limit::Limiter::kyc(),
             login_limiter: super::rate_limit::Limiter::auth_login(),
             refresh_limiter: super::rate_limit::Limiter::auth_refresh(),
+            snapshot_limiter: super::rate_limit::Limiter::snapshot_upload(),
             grants: GrantCache::builder().time_to_live(std::time::Duration::from_secs(60)).build(),
             crypto,
             hub: super::events::EventHub::new(),
