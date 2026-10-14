@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { onIncidentEvent } from './events'
 import { apiFetch } from './session'
 
 interface SearchHit {
@@ -99,6 +100,21 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
     const res = await apiFetch(`/sites/${siteId}/incidents`)
     if (res.ok) setIncidents((await res.json()) as Incident[])
   }
+
+  // Live refresh: fellow analysts' mutations arrive on the shared stream.
+  // Re-subscribes when the site changes; the stream is a hint — manual
+  // Refresh stays as the lag/drop fallback.
+  useEffect(
+    () =>
+      onIncidentEvent((ev) => {
+        // Absent site_id = liberal match (older payloads always carry it).
+        if (!siteId || (ev.site_id && ev.site_id !== siteId)) return
+        void apiFetch(`/sites/${siteId}/incidents`).then(async (res) => {
+          if (res.ok) setIncidents((await res.json()) as Incident[])
+        })
+      }),
+    [siteId],
+  )
 
   async function loadHeat() {
     if (!siteId) return

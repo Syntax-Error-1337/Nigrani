@@ -3,15 +3,35 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useSession } from './session'
 
 interface HubEvent {
-  kind: 'crossing' | 'kyc_decided' | 'topology'
+  kind: 'crossing' | 'kyc_decided' | 'topology' | 'incident'
   site_id?: string
   gate_id?: string
+  incident_id?: string
+  action?: string
 }
 
 function isHubEvent(body: unknown): body is HubEvent {
   if (body === null || typeof body !== 'object' || !('kind' in body)) return false
   const kind: unknown = body.kind
-  return kind === 'crossing' || kind === 'kyc_decided' || kind === 'topology'
+  return kind === 'crossing' || kind === 'kyc_decided' || kind === 'topology' || kind === 'incident'
+}
+
+export interface IncidentWire {
+  site_id?: string
+  incident_id?: string
+  action?: string
+}
+
+/// Bench-side subscribers: ForensicBench keeps incidents in local useState
+/// (not react-query), so incident events fan out through this set instead
+/// of query invalidation. Returns an unsubscribe closure.
+const incidentListeners = new Set<(ev: IncidentWire) => void>()
+
+export function onIncidentEvent(fn: (ev: IncidentWire) => void): () => void {
+  incidentListeners.add(fn)
+  return () => {
+    incidentListeners.delete(fn)
+  }
 }
 
 // Single shared event stream: invalidates tanstack-query keys so panels
@@ -45,6 +65,9 @@ export function useEventStream() {
           queryClient.invalidateQueries({ queryKey: ['heatmap'] })
         } else if (body.kind === 'kyc_decided') {
           queryClient.invalidateQueries({ queryKey: ['kyc'] })
+        } else if (body.kind === 'incident') {
+          const wire: IncidentWire = { site_id: body.site_id, incident_id: body.incident_id, action: body.action }
+          incidentListeners.forEach((fn) => fn(wire))
         } else {
           queryClient.invalidateQueries({ queryKey: ['sites'] })
           queryClient.invalidateQueries({ queryKey: ['gates'] })
