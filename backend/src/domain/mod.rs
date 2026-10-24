@@ -71,6 +71,10 @@ pub struct Gate {
     pub created_at: DateTime<Utc>,
     #[serde(default)]
     pub archived_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duty_officer: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duty_username: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

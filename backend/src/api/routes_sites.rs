@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::auth::{require_permission, AuthUser};
@@ -97,6 +97,17 @@ pub async fn create_site(
     Ok(Json(site))
 }
 
+type GateRow = (
+    Uuid,
+    Uuid,
+    String,
+    String,
+    Ts,
+    Option<Ts>,
+    Option<Uuid>,
+    Option<String>,
+);
+
 pub async fn list_gates(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -107,25 +118,37 @@ pub async fn list_gates(
     let (limit, offset) = resolve_page(filter.limit, filter.offset, 50)?;
     let pattern = format!("%{}%", filter.q.as_deref().unwrap_or(""));
     let show_all = include_archived(&filter);
-    let rows: Vec<(Uuid, Uuid, String, String, Ts, Option<Ts>)> = sqlx::query_as(
-        "SELECT id, site_id, name, direction, created_at, archived_at FROM gates
-         WHERE site_id = $1 AND name ILIKE $2 AND ($3 OR archived_at IS NULL)
-         ORDER BY name LIMIT $4 OFFSET $5",
-    )
-    .bind(site_id)
-    .bind(pattern)
-    .bind(show_all)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(AppError::Db)?;
+    let rows: Vec<GateRow> =
+        sqlx::query_as(
+            "SELECT g.id, g.site_id, g.name, g.direction, g.created_at, g.archived_at,
+                    g.duty_officer, u.username
+             FROM gates g LEFT JOIN users u ON u.id = g.duty_officer
+             WHERE g.site_id = $1 AND g.name ILIKE $2 AND ($3 OR g.archived_at IS NULL)
+             ORDER BY g.name LIMIT $4 OFFSET $5",
+        )
+        .bind(site_id)
+        .bind(pattern)
+        .bind(show_all)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
     let mut out = Vec::with_capacity(rows.len());
-    for (id, gate_site_id, name, direction_str, created_at, archived_at) in rows {
+    for (id, gate_site_id, name, direction_str, created_at, archived_at, duty_officer, duty_username) in rows {
         let Some(direction) = GateDirection::parse(&direction_str) else {
             continue;
         };
-        out.push(Gate { id, site_id: gate_site_id, name, direction, created_at, archived_at });
+        out.push(Gate {
+            id,
+            site_id: gate_site_id,
+            name,
+            direction,
+            created_at,
+            archived_at,
+            duty_officer,
+            duty_username,
+        });
     }
     Ok(Json(out))
 }
@@ -170,7 +193,7 @@ pub async fn create_gate(
         .await
         .map_err(map_constraint)?;
     let direction = GateDirection::parse(&direction_str).unwrap_or(GateDirection::Entry);
-    let gate = Gate { id, site_id: gate_site_id, name, direction, created_at, archived_at: None };
+    let gate = Gate { id, site_id: gate_site_id, name, direction, created_at, archived_at: None, duty_officer: None, duty_username: None };
     state.hub.publish(&super::events::HubEvent::Topology { at: gate.created_at });
     Ok(Json(gate))
 }
@@ -267,18 +290,20 @@ pub async fn set_gate_archived(
         "restore" => false,
         _ => return Err(AppError::NotFound("unknown gate action".to_owned())),
     };
-    let row: Option<(Uuid, Uuid, String, String, Ts, Option<Ts>)> = sqlx::query_as(
-        "UPDATE gates SET archived_at = CASE WHEN $1 THEN now() ELSE NULL END
-         WHERE id = $2 AND site_id = $3
-         RETURNING id, site_id, name, direction, created_at, archived_at",
-    )
-    .bind(archive)
-    .bind(gate_id)
-    .bind(site_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(AppError::Db)?;
-    let Some((id, gate_site, name, direction_str, created_at, archived_at)) = row else {
+    let row: Option<GateRow> =
+        sqlx::query_as(
+            "UPDATE gates SET archived_at = CASE WHEN $1 THEN now() ELSE NULL END
+             WHERE id = $2 AND site_id = $3
+             RETURNING id, site_id, name, direction, created_at, archived_at, duty_officer,
+                       (SELECT username FROM users WHERE id = gates.duty_officer)",
+        )
+        .bind(archive)
+        .bind(gate_id)
+        .bind(site_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let Some((id, gate_site, name, direction_str, created_at, archived_at, duty_officer, duty_username)) = row else {
         return Err(AppError::NotFound("gate not found at this site".to_owned()));
     };
     let direction = GateDirection::parse(&direction_str).unwrap_or(GateDirection::Entry);
@@ -292,5 +317,150 @@ pub async fn set_gate_archived(
     )
     .await;
     state.hub.publish(&super::events::HubEvent::Topology { at: chrono::Utc::now() });
-    Ok(Json(Gate { id, site_id: gate_site, name, direction, created_at, archived_at }))
+    Ok(Json(Gate { id, site_id: gate_site, name, direction, created_at, archived_at, duty_officer, duty_username }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetDuty {
+    pub user_id: Option<Uuid>,
+}
+
+/// Assign (or clear, user_id null) the duty officer of one gate. The
+/// assignee must be active and hold `entries:write` — duty means recording
+/// crossings at that gate.
+pub async fn set_gate_duty(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((site_id, gate_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<SetDuty>,
+) -> AppResult<Json<Gate>> {
+    require_permission(&state, &user, "gates:write").await?;
+    if let Some(officer) = body.user_id {
+        let row: Option<(bool, bool)> = sqlx::query_as(
+            "SELECT u.active, EXISTS (
+                 SELECT 1 FROM role_permissions rp
+                 JOIN permissions p ON p.id = rp.permission_id
+                 WHERE rp.role_id = u.role_id AND p.name = 'entries:write')
+             FROM users u WHERE u.id = $1",
+        )
+        .bind(officer)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+        let Some((active, has_entries)) = row else {
+            return Err(AppError::NotFound("user not found".to_owned()));
+        };
+        if !active {
+            return Err(AppError::BadRequest("user is deactivated".to_owned()));
+        }
+        if !has_entries {
+            return Err(AppError::BadRequest(
+                "user lacks entries:write — cannot hold gate duty".to_owned(),
+            ));
+        }
+    }
+    let row: Option<GateRow> =
+        sqlx::query_as(
+            "UPDATE gates SET duty_officer = $1
+             WHERE id = $2 AND site_id = $3
+             RETURNING id, site_id, name, direction, created_at, archived_at, duty_officer,
+                       (SELECT username FROM users WHERE id = gates.duty_officer)",
+        )
+        .bind(body.user_id)
+        .bind(gate_id)
+        .bind(site_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let Some((id, gate_site, name, direction_str, created_at, archived_at, duty_officer, duty_username)) =
+        row
+    else {
+        return Err(AppError::NotFound("gate not found at this site".to_owned()));
+    };
+    let direction = GateDirection::parse(&direction_str).unwrap_or(GateDirection::Entry);
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "gate.duty",
+        "gate",
+        Some(id),
+        serde_json::json!({"duty_officer": duty_username}),
+    )
+    .await;
+    state.hub.publish(&super::events::HubEvent::Topology { at: chrono::Utc::now() });
+    Ok(Json(Gate { id, site_id: gate_site, name, direction, created_at, archived_at, duty_officer, duty_username }))
+}
+
+/// A gate on the caller's duty roster.
+#[derive(Debug, Serialize)]
+pub struct DutyGate {
+    pub gate_id: Uuid,
+    pub gate_name: String,
+    pub direction: String,
+    pub site_id: Uuid,
+    pub site_name: String,
+    pub archived_at: Option<Ts>,
+}
+
+/// The caller's own duty roster: gates they are assigned to staff. No
+/// permission gate beyond authentication — one may always see one's own
+/// assignment; archived sites are omitted (archived gates listed for record).
+pub async fn my_duty(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<Vec<DutyGate>>> {
+    let rows: Vec<(Uuid, String, String, Uuid, String, Option<Ts>)> = sqlx::query_as(
+        "SELECT g.id, g.name, g.direction, s.id, s.name, g.archived_at
+         FROM gates g
+         JOIN sites s ON s.id = g.site_id
+         WHERE g.duty_officer = $1 AND s.archived_at IS NULL
+         ORDER BY s.name, g.name",
+    )
+    .bind(user.id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(gate_id, gate_name, direction, site_id, site_name, archived_at)| DutyGate {
+                gate_id,
+                gate_name,
+                direction,
+                site_id,
+                site_name,
+                archived_at,
+            })
+            .collect(),
+    ))
+}
+
+/// Console overview numbers for the dashboard header. One round trip,
+/// one query; role-agnostic counts (every console role holds sites:read).
+#[derive(Debug, Serialize)]
+pub struct Stats {
+    pub sites: i64,
+    pub gates: i64,
+    pub crossings_24h: i64,
+    pub pending_kyc: i64,
+    pub open_incidents: i64,
+}
+
+pub async fn get_stats(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<Stats>> {
+    require_permission(&state, &user, "sites:read").await?;
+    let (sites, gates, crossings_24h, pending_kyc, open_incidents): (i64, i64, i64, i64, i64) =
+        sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM sites WHERE archived_at IS NULL),
+                (SELECT COUNT(*) FROM gates WHERE archived_at IS NULL),
+                (SELECT COUNT(*) FROM entry_logs WHERE recorded_at > now() - interval '24 hours'),
+                (SELECT COUNT(*) FROM kyc_applications WHERE status = 'pending'),
+                (SELECT COUNT(*) FROM incidents WHERE status IN ('open', 'investigating'))",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    Ok(Json(Stats { sites, gates, crossings_24h, pending_kyc, open_incidents }))
 }

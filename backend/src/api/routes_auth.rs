@@ -1,4 +1,4 @@
-use axum::{extract::State, Json};
+use axum::{extract::{Query, State}, Json};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -267,9 +267,11 @@ pub async fn me(
     }))
 }
 
-/// Assignable roster: active users holding `incidents:write`, minimal
-/// fields. Gated on `incidents:write` itself (callers who can assign at
+/// Assignable roster: active users holding a given write permission,
+/// minimal fields. Gated on the same permission (callers who can assign at
 /// all) — analysts discover assignees without full `users:read`.
+/// Default permission is `incidents:write`; `?perm=entries:write` returns
+/// gate-duty candidates.
 #[derive(Debug, serde::Serialize)]
 pub struct AssigneeView {
     pub id: Uuid,
@@ -277,19 +279,31 @@ pub struct AssigneeView {
     pub role: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AssignableFilter {
+    pub perm: Option<String>,
+}
+
 pub async fn list_assignable(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
+    Query(filter): Query<AssignableFilter>,
 ) -> AppResult<Json<Vec<AssigneeView>>> {
-    require_permission(&state, &user, "incidents:write").await?;
+    let perm = match filter.perm.as_deref() {
+        None | Some("incidents:write") => "incidents:write",
+        Some("entries:write") => "entries:write",
+        Some(_) => return Err(AppError::BadRequest("unknown permission".to_owned())),
+    };
+    require_permission(&state, &user, perm).await?;
     let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
         r#"SELECT DISTINCT u.id, u.username, r.name AS role
            FROM users u JOIN roles r ON r.id = u.role_id
            JOIN role_permissions rp ON rp.role_id = r.id
            JOIN permissions p ON p.id = rp.permission_id
-           WHERE u.active AND p.name = 'incidents:write'
+           WHERE u.active AND p.name = $1
            ORDER BY u.username"#,
     )
+    .bind(perm)
     .fetch_all(&state.pool)
     .await
     .map_err(AppError::Db)?;

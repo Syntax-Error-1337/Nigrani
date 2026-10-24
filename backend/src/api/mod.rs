@@ -31,7 +31,10 @@ use self::routes_forensics::{
 };
 use self::routes_gate::{collect_snapshots, download_snapshot, gate_log, record_event, share_snapshot, upload_snapshot};
 use self::routes_kyc::{decide_kyc, list_kyc, press_card, press_card_png, revoke_card, submit_kyc, verify_press_card};
-use self::routes_sites::{create_gate, create_site, list_gates, list_sites, set_gate_archived, set_site_archived};
+use self::routes_sites::{
+    create_gate, create_site, get_stats, list_gates, list_sites, my_duty, set_gate_archived,
+    set_gate_duty, set_site_archived,
+};
 use self::state::AppState;
 use crate::core::AppResult;
 
@@ -78,6 +81,9 @@ pub fn router(state: AppState) -> Router {
         .route("/sites/:site_id/gates", get(list_gates).post(create_gate))
         .route("/sites/:site_id/archive/:action", post(set_site_archived))
         .route("/sites/:site_id/gates/:gate_id/archive/:action", post(set_gate_archived))
+        .route("/sites/:site_id/gates/:gate_id/duty", post(set_gate_duty))
+        .route("/my/duty", get(my_duty))
+        .route("/stats", get(get_stats))
         .route("/kyc/applications", get(list_kyc))
         .route("/kyc/applications/:id/decide", post(decide_kyc))
         .route("/kyc/applications/:id/revoke-card", post(revoke_card))
