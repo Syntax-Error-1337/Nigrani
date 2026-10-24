@@ -33,7 +33,20 @@ impl FromRequestParts<AppState> for AuthUser {
             .strip_prefix("Bearer ")
             .ok_or_else(|| AppError::Unauthorized("malformed authorization header".to_owned()))?;
         let claims = verify_access_token(&state.jwt_secret, token)?;
-        Ok(Self(claims.into_user()?))
+        let user = claims.into_user()?;
+        // Signature is stateless; the session dies with its user row
+        // (deleted, deactivated, or wiped by a demo reset). Without this,
+        // stale tokens linger and die later as confusing 403s.
+        let alive: Option<bool> =
+            sqlx::query_scalar("SELECT active FROM users WHERE id = $1")
+                .bind(user.id)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(AppError::Db)?;
+        match alive {
+            Some(true) => Ok(Self(user)),
+            _ => Err(AppError::Unauthorized("session no longer valid".to_owned())),
+        }
     }
 }
 

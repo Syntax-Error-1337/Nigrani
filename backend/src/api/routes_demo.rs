@@ -46,11 +46,15 @@ pub async fn reset_demo(
     let mut truncated = HashMap::new();
     for table in tables {
         // Table names are internal constants (not user input); format is safe.
-        let n = sqlx::query(&format!("TRUNCATE {table} RESTART IDENTITY CASCADE"))
+        // Postgres TRUNCATE reports rows_affected()==0, so count first.
+        let (n,): (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM {table}"))
+            .fetch_one(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+        sqlx::query(&format!("TRUNCATE {table} RESTART IDENTITY CASCADE"))
             .execute(&state.pool)
             .await
-            .map_err(AppError::Db)?
-            .rows_affected() as i64;
+            .map_err(AppError::Db)?;
         truncated.insert(table.to_owned(), n);
     }
     // Re-seed baseline: users (idempotent), Jantar Mantar + Gates 1–4,
