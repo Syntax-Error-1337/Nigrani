@@ -1,7 +1,20 @@
 # Nigrani निगरानी
 
-> **हर प्रवेश पर निगरानी — har pravesh par nigrani.**
-> Vigilance at every entry, accountability at every step.
+<div align="center">
+
+**हर प्रवेश पर निगरानी — har pravesh par nigrani.**
+*Vigilance at every entry, accountability at every step.*
+
+[![CI](https://github.com/Syntax-Error-1337/Nigrani/actions/workflows/ci.yml/badge.svg)](https://github.com/Syntax-Error-1337/Nigrani/actions/workflows/ci.yml)
+![Rust](https://img.shields.io/badge/Rust-axum-DEA584?logo=rust&logoColor=white)
+![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)
+![Tests](https://img.shields.io/badge/integration_tests-57_passing-brightgreen)
+![UX4G 2.0](https://img.shields.io/badge/UX4G_2.0-Saffron_Green_Navy-FF9933?logoColor=white)
+
+</div>
+
+---
 
 Crowd-access command for protest sites: watch every gate, screen every
 person, and keep an unforgeable record of it all. Rust/axum RBAC API +
@@ -20,7 +33,7 @@ Console styling follows the UX4G 2.0 "Saffron Green Navy" India theme: GoI
 portal palette, Noto Sans (Hindi + English), GIGW 3.0 accessibility
 patterns (skip link, A−/A/A+ text-size switcher, AA contrast).
 
-## Quick start
+## 🚀 Quick start
 
 ```sh
 docker compose up -d db s3   # db is the pgvector image
@@ -37,7 +50,7 @@ Gate kiosk: sign in as `gate`, pick a site and gate post.
 Roles: SuperAdmin, SiteCommander, GateOperator, VerificationOfficer,
 ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 
-## Auth & accounts
+## 🔐 Auth & accounts
 
 - `GET /health` → `ok`
 - `GET /stats` (needs `sites:read`) → `{sites, gates, crossings_24h, pending_kyc, open_incidents}` — the console's dashboard overview row
@@ -59,7 +72,7 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 - Lockout: 5 consecutive bad passwords → 15-min lock; locked logins `401`
   identically to bad credentials (no oracle); any success resets strikes
 
-## Topology
+## 🗺️ Topology
 
 - `GET/POST /sites` (`?q=`, `?include=archived`), `GET/POST
   /sites/:site_id/gates` (same filters)
@@ -77,7 +90,7 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 - Archiving a site with live gates → `409`; crossings/incidents/creates
   on archived rows → `410 Gone`; lists hide archived by default
 
-## Press KYC
+## 🪪 Press KYC
 
 - `POST /kyc/applications` (public, 10/min per IP) → pending application
 - Resubmitting a document with a live pending row → `409` (blind-index
@@ -107,7 +120,7 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
   attachment (`{generated_at, revoked, expired, superseded}`; plain JSON —
   revocation evidence stays covered by the hash-chained audit)
 
-## Gate ops
+## 🚧 Gate ops
 
 - `POST /sites/:site_id/gates/:gate_id/events` (needs `entries:write`) →
   screening event; `press_card` payloads HMAC-verified AND liveness-checked
@@ -118,7 +131,7 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
   `GET /snapshots/:key` (streams JPEG) / `/snapshots/:key/share`
   (15-min presigned URL) need `gates:read`
 
-## Forensics
+## 🔎 Forensics
 
 - `POST /forensics/embeddings` (needs `forensics:search`) → store 512-d vector
 - `POST /forensics/search` `{embedding, threshold?, limit?, site_id?}` →
@@ -147,13 +160,13 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
   `/events` as `surge`
 - Forensic bench updates live over the event stream (no manual refresh)
 
-## Realtime
+## 📡 Realtime
 
 - `GET /events?token=` → WebSocket stream: `crossing`, `kyc_decided`,
   `topology`, `incident{created|status|assigned|linked}`. Hint semantics —
   REST stays source of truth; clients reconnect with backoff.
 
-## Audit
+## 🧾 Audit
 
 - Every mutation appends a hash-chained row (`actor, action, entity,
   detail, prev_hash, hash`); `GET /audit` (SuperAdmin),
@@ -162,7 +175,7 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 - Deleting a user with trail history is refused (actor FK is RESTRICT) —
   silent attribution loss is impossible; deactivate instead
 
-## Retention & snapshots
+## ♻️ Retention & snapshots
 
 - `GET /admin/retention/policies` / `POST .../policies/:entity`
   `{retain_days}` / `POST /admin/retention/run` (all SuperAdmin) →
@@ -173,19 +186,19 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
   default) → orphan S3-key collection with counts; Retention panel shows
   the orphan console
 
-## Demo reset
+## 🧪 Demo reset
 
 - `POST /admin/demo/reset` (SuperAdmin, refused with `APP_ENV=production`)
   → truncates ops data, reseeds users + Jantar Mantar + Gates 1–4
 
-## Errors
+## ⚠️ Errors
 
 Every error is `{error, request_id}` (`X-Request-ID` echo). Status guide:
 `400` validation, `401` credentials (incl. locked — deliberate),
 `403` permission/scan-denied, `404` missing, `409` state conflict,
 `410` archived/retired, `429` rate limit, `500` storage/crypto unavailable.
 
-## Console tour
+## 🖥️ Console tour
 
 - SuperAdmin: everything — sites/gates + Archive buttons, Operators
   (provision/deactivate/unlock), ReviewDesk (+ repeat + revoked badges),
@@ -197,7 +210,7 @@ Every error is `{error, request_id}` (`X-Request-ID` echo). Status guide:
   CRL export)
 - ForensicAnalyst: bench + heatmap + incidents
 
-## Tests
+## ✅ Tests
 
 ```sh
 docker compose up -d db
@@ -206,7 +219,7 @@ cargo clippy --all-targets -- -D warnings
 cd ../frontend && npx tsc -b && npx oxlint
 ```
 
-## Layout
+## 📁 Layout
 
 - `backend/src/{api,core,domain,infrastructure}` + `backend/migrations`
   (0015 to date: incidents, retention, fingerprints, lockout, retirement,
@@ -221,7 +234,7 @@ cd ../frontend && npx tsc -b && npx oxlint
   (tanstack-query)
 - `docs/` — per-slice scope notes (`*_SLICE.md`) + `SCOPE.md`
 
-## Deploy
+## 🚢 Deploy
 
 ```sh
 docker compose up --build -d   # db + s3 + api; API on :8080
@@ -231,7 +244,7 @@ Local dev stays split-process (`cargo run` + `npm run dev`); the `api`
 service is for a single-host staging box. Production secrets come from the
 environment (`JWT_SECRET`, `APP_ENV=production` blocks default seeding).
 
-## Backups
+## 💾 Backups
 
 ```sh
 # Postgres (roles, logs, embeddings, incidents)
@@ -241,7 +254,7 @@ aws --endpoint-url http://127.0.0.1:4566 s3 sync \
   s3://nigrani-snapshots ./backup-snapshots
 ```
 
-## Out of scope (recorded)
+## 🚫 Out of scope (recorded)
 
 - Rate-limit counters are Postgres-backed and shared across replicas
   (migration 0019); a dedicated Redis tier is not used. The `/events` WS
@@ -258,7 +271,7 @@ aws --endpoint-url http://127.0.0.1:4566 s3 sync \
   partial UNIQUE index remains a PostgreSQL-level idea (the blind-index
   check makes it redundant at this scale)
 
-## Deployment & CI
+## 🤖 Deployment & CI
 
 - `k8s/nigrani.yaml`: 2-replica Deployment with `/health` probes, Service,
   cert-manager TLS Ingress (termination at the ingress controller), and a
