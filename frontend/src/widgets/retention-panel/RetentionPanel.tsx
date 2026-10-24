@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Recycle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 
 interface Policy {
@@ -138,17 +139,19 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight">Retention</h2>
-        <button onClick={load} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+          <Recycle className="h-4 w-4 text-slate-400" /> Retention
+        </h2>
+        <button onClick={load} className="btn btn-secondary">
           Load policies
         </button>
         <button onClick={purge} className="border border-rose-200 bg-white px-3 py-1 text-xs font-medium text-deny hover:bg-rose-50">
           Run purge
         </button>
-        <button onClick={preview} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+        <button onClick={preview} className="btn btn-secondary">
           Preview purge
         </button>
-        <button onClick={exportSite} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+        <button onClick={exportSite} className="btn btn-secondary">
           Export active site
         </button>
       </div>
@@ -173,7 +176,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
       <div className="mt-4 border-t border-slate-200 pt-3">
         <div className="flex items-baseline gap-3">
           <h3 className="text-base font-semibold tracking-tight">Snapshot orphans</h3>
-          <button onClick={checkOrphans} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+          <button onClick={checkOrphans} className="btn btn-secondary">
             Check orphans
           </button>
           <button onClick={collectOrphans} className="border border-rose-200 bg-white px-3 py-1 text-xs font-medium text-deny hover:bg-rose-50">
@@ -216,7 +219,7 @@ function PolicyRow({
           type="number"
           min={0}
           max={3650}
-          className="border border-slate-300 bg-white px-2 py-1 text-sm w-24"
+          className="input w-24"
           value={days}
           onChange={(e) => setDays(Number(e.target.value))}
         />

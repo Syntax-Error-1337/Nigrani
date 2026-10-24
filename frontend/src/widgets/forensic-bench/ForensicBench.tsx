@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Radar } from 'lucide-react'
 import { onIncidentEvent } from '@/shared/lib'
 import { apiFetch } from '@/shared/api'
 
@@ -282,7 +283,9 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
 
   return (
     <section className="mt-8">
-      <h2 className="text-2xl font-semibold tracking-tight">Forensic bench</h2>
+      <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+        <Radar className="h-4 w-4 text-slate-400" /> Forensic bench
+      </h2>
       {notice ? (
         <p role="alert" className="mt-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
           {notice}
@@ -334,7 +337,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
-            <button type="submit" className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
+            <button type="submit" className="btn btn-primary">
               File incident
             </button>
           </form>

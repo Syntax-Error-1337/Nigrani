@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { KeyRound, Users } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { STORAGE_KEY, useSession } from '@/shared/session'
 
@@ -70,13 +71,15 @@ export default function OperatorsPanel() {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight">Operators</h2>
-        <button onClick={load} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+          <Users className="h-4 w-4 text-slate-400" /> Operators
+        </h2>
+        <button onClick={load} className="btn btn-secondary">
           Load operators
         </button>
       </div>
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
-      <ol className="mt-3 divide-y divide-slate-200 border border-slate-200 bg-white rounded-xl shadow-sm">
+      <ol className="mt-3 card divide-y divide-slate-100">
         {(rows ?? []).map((op) => (
           <li key={op.id} className="flex items-baseline gap-3 px-4 py-2 font-ledger text-xs">
             <span className={op.active ? '' : 'text-neutral-400 line-through'}>{op.username}</span>
@@ -101,7 +104,7 @@ export default function OperatorsPanel() {
         <label className="flex flex-col gap-1 text-sm">
           Username (a-z0-9_, 3–32)
           <input
-            className="border border-slate-300 bg-white px-3 py-2"
+            className="input"
             value={form.username}
             onChange={(e) => setForm({ ...form, username: e.target.value })}
           />
@@ -110,7 +113,7 @@ export default function OperatorsPanel() {
           Password (12+ chars)
           <input
             type="password"
-            className="border border-slate-300 bg-white px-3 py-2"
+            className="input"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             autoComplete="new-password"
@@ -119,7 +122,7 @@ export default function OperatorsPanel() {
         <label className="flex flex-col gap-1 text-sm">
           Role
           <select
-            className="border border-slate-300 bg-white px-3 py-2"
+            className="input"
             value={form.role}
             onChange={(e) => setForm({ ...form, role: e.target.value })}
           >
@@ -130,7 +133,7 @@ export default function OperatorsPanel() {
             <option>ForensicAnalyst</option>
           </select>
         </label>
-        <button type="submit" className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
+        <button type="submit" className="btn btn-primary">
           Provision
         </button>
       </form>
@@ -173,13 +176,15 @@ export function PasswordDialog() {
 
   return (
     <section className="mt-8">
-      <h2 className="text-2xl font-semibold tracking-tight">Change password</h2>
+      <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+        <KeyRound className="h-4 w-4 text-slate-400" /> Change password
+      </h2>
       <form onSubmit={submit} className="mt-2 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
           Current
           <input
             type="password"
-            className="border border-slate-300 bg-white px-3 py-2"
+            className="input"
             value={current}
             onChange={(e) => setCurrent(e.target.value)}
             autoComplete="current-password"
@@ -189,13 +194,13 @@ export function PasswordDialog() {
           New (12+ chars)
           <input
             type="password"
-            className="border border-slate-300 bg-white px-3 py-2"
+            className="input"
             value={next}
             onChange={(e) => setNext(e.target.value)}
             autoComplete="new-password"
           />
         </label>
-        <button type="submit" className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
+        <button type="submit" className="btn btn-primary">
           Change
         </button>
         <button

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Anchor, Link2, ScrollText, ShieldCheck, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 
 interface AuditEntry {
@@ -83,34 +84,46 @@ function detailLines(detail: unknown): [string, string][] {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight">Audit trail</h2>
+        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+          <ScrollText className="h-4 w-4 text-slate-400" /> Audit trail
+        </h2>
         {global === true ? (
           <button
             onClick={() => setScope(scope === 'all' ? 'site' : 'all')}
-            className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400"
+            className="btn btn-secondary"
           >
             {scope === 'all' ? 'Site scope' : 'Global scope'}
           </button>
         ) : null}
-        <button onClick={load} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
-          Load trail
+        <button onClick={load} className="btn btn-secondary">
+          <Link2 className="h-3.5 w-3.5" /> Load trail
         </button>
-        <button onClick={verify} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
-          Verify chain
+        <button onClick={verify} className="btn btn-secondary">
+          <ShieldCheck className="h-3.5 w-3.5" /> Verify chain
         </button>
         {global === true ? (
-          <button onClick={anchor} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
-            Anchor head
+          <button onClick={anchor} className="btn btn-secondary">
+            <Anchor className="h-3.5 w-3.5" /> Anchor head
           </button>
         ) : null}
       </div>
-      {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
-      {verdict ? <p className="mt-2 font-ledger text-xs">{verdict}</p> : null}
-      <ol className="mt-3 divide-y divide-slate-200 border border-slate-200 bg-white rounded-xl shadow-sm">
+      {notice ? (
+        <p role="alert" className="mt-2 flex items-center gap-2 text-sm text-deny">
+          <XCircle className="h-4 w-4 shrink-0" /> {notice}
+        </p>
+      ) : null}
+      {verdict ? (
+        <p className={`mt-2 inline-block rounded-lg px-3 py-1.5 font-ledger text-xs ${
+          verdict.startsWith('CHAIN BROKEN') || verdict.includes('ANCHOR MISMATCH')
+            ? 'bg-rose-50 text-deny'
+            : 'bg-emerald-50 text-ok'
+        }`}>{verdict}</p>
+      ) : null}
+      <ol className="mt-3 card divide-y divide-slate-100">
         {(rows ?? []).map((e) => {
           const lines = detailLines(e.detail)
           return (
-            <li key={e.seq} className="px-4 py-2 font-ledger text-xs">
+            <li key={e.seq} className="px-4 py-2 font-ledger text-xs transition-colors hover:bg-slate-50/70">
               <div className="flex items-baseline gap-3">
                 <span className="text-neutral-400">#{e.seq}</span>
                 <span className="uppercase">{e.action}</span>
