@@ -196,6 +196,21 @@ pub async fn enroll_embedding(
         }
     }
     if let Some(app_id) = body.application_id {
+        let app: Option<(bool,)> = sqlx::query_as(
+            "SELECT photo_consent FROM kyc_applications WHERE id = $1",
+        )
+        .bind(app_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+        let Some((consent,)) = app else {
+            return Err(AppError::NotFound("application not found".to_owned()));
+        };
+        if !consent {
+            return Err(AppError::Conflict(
+                "application has no biometric consent on record".to_owned(),
+            ));
+        }
         let exists: bool =
             sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM kyc_applications WHERE id = $1)")
                 .bind(app_id)
@@ -914,6 +929,51 @@ pub async fn get_surge(
 }
 
 /// Set or clear the per-site surge threshold (entries/hour per gate).
+
+#[derive(Debug, Deserialize)]
+pub struct CapacityBody {
+    /// Max simultaneous present (entries − exits over the last 12 h at the
+    /// site). NULL clears the cap.
+    pub capacity: Option<i32>,
+}
+
+/// Set/clear the site's entry capacity cap (commander). At capacity, ENTRY
+/// crossings are refused 403 and a `capacity` hub event announces it.
+pub async fn set_capacity(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(site_id): Path<Uuid>,
+    Json(body): Json<CapacityBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    require_permission(&state, &user, "sites:write").await?;
+    if let Some(c) = body.capacity {
+        if !(1..=100_000).contains(&c) {
+            return Err(AppError::BadRequest("capacity must be 1..=100000".to_owned()));
+        }
+    }
+    let updated: Option<Option<i32>> = sqlx::query_scalar(
+        "UPDATE sites SET capacity = $1 WHERE id = $2 RETURNING capacity",
+    )
+    .bind(body.capacity)
+    .bind(site_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    if updated.is_none() {
+        return Err(AppError::NotFound("site not found".to_owned()));
+    }
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "site.capacity_set",
+        "site",
+        Some(site_id),
+        serde_json::json!({ "capacity": body.capacity }),
+    )
+    .await;
+    Ok(Json(serde_json::json!({ "capacity": body.capacity })))
+}
+
 pub async fn set_surge(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,

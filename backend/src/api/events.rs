@@ -42,6 +42,13 @@ pub enum HubEvent {
     Topology {
         at: chrono::DateTime<chrono::Utc>,
     },
+    /// A site hit its entry-capacity cap (s-H4).
+    Capacity {
+        at: chrono::DateTime<chrono::Utc>,
+        site_id: Uuid,
+        occupancy: i64,
+        capacity: i32,
+    },
     /// Hourly entries at a gate crossed the site's surge threshold.
     Surge {
         at: chrono::DateTime<chrono::Utc>,

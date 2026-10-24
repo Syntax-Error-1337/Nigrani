@@ -42,6 +42,7 @@ async fn forensics_enroll_search_incidents_heatmap() {
             "full_name": format!("Vector {}", uuid::Uuid::new_v4()),
             "document_type": "pan",
             "document_number": format!("V-{}", uuid::Uuid::new_v4()),
+            "photo_consent": true,
         }))
         .send()
         .await
@@ -268,3 +269,30 @@ async fn forensic_references_validate_before_write() {
     }
 }
 
+
+#[tokio::test]
+async fn embedding_enrollment_requires_photo_consent() {
+    let srv = TestServer::spawn().await;
+    let analyst = srv.login("analyst").await;
+    // No-consent application → enrollment refused 409.
+    let app: Value = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({"full_name": format!("NoConsent {}", uuid::Uuid::new_v4()),
+                      "document_type": "pan", "document_number": format!("NC-{}", uuid::Uuid::new_v4())}))
+        .send().await.unwrap().json().await.unwrap();
+    let res = srv.client.post(format!("{}/forensics/embeddings", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({"embedding": vec![0.5f32; 512], "application_id": app["id"]}))
+        .send().await.unwrap();
+    assert_eq!(res.status(), 409, "enrollment without consent must be refused");
+    // With consent → accepted.
+    let ok_app: Value = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({"full_name": format!("Consented {}", uuid::Uuid::new_v4()),
+                      "document_type": "pan", "document_number": format!("CY-{}", uuid::Uuid::new_v4()),
+                      "photo_consent": true}))
+        .send().await.unwrap().json().await.unwrap();
+    let res = srv.client.post(format!("{}/forensics/embeddings", srv.base))
+        .bearer_auth(&analyst)
+        .json(&json!({"embedding": vec![0.5f32; 512], "application_id": ok_app["id"]}))
+        .send().await.unwrap();
+    assert_eq!(res.status(), 200);
+}

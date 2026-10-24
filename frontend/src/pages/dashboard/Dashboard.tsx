@@ -6,6 +6,7 @@ import ForensicBench from '@/widgets/forensic-bench'
 import Kiosk from '@/widgets/kiosk'
 import OperatorsPanel, { PasswordDialog } from '@/widgets/operators-panel'
 import RetentionPanel from '@/widgets/retention-panel'
+import SecurityPanel from '@/widgets/security-panel'
 import ReviewDesk from '@/widgets/review-desk'
 import TrendsSurge from '@/widgets/trends-surge'
 import { useGates, useSites, useStats } from '@/entities/site'
@@ -525,6 +526,7 @@ export default function Dashboard() {
         )}
         {user.role === 'SuperAdmin' && <RetentionPanel siteId={activeSiteId} />}
         {user.role === 'SuperAdmin' && <OperatorsPanel />}
+        <SecurityPanel />
         <PasswordDialog />
       </div>
     </main>

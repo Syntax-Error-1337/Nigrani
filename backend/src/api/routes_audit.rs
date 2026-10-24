@@ -86,7 +86,7 @@ pub async fn record(
 /// so both writer and verifier serialize identically. WARNING: enabling
 /// serde_json's `preserve_order` feature would silently fork the chain —
 /// external verifiers must serialize with bytewise-sorted keys.
-fn chain_hash(
+pub fn chain_hash(
     prev: &str,
     at: DateTime<Utc>,
     actor: Option<Uuid>,
@@ -113,7 +113,9 @@ fn chain_hash(
 /// Verify the hash chain front-to-back. Reports the first bad seq, if any.
 /// Full chain walk (also the pack's verdict source — one implementation so
 /// writer and verifier can never drift).
-pub async fn verify_chain(pool: &sqlx::PgPool) -> AppResult<(bool, i64, Option<i64>)> {
+pub async fn verify_chain<'e, E: sqlx::PgExecutor<'e>>(
+    pool: E,
+) -> AppResult<(bool, i64, Option<i64>)> {
     let rows: Vec<AuditRowFull> = sqlx::query_as(
         "SELECT seq, at, actor, action, entity, entity_id, detail, prev_hash, hash
          FROM audit_log ORDER BY seq",
@@ -136,6 +138,78 @@ pub async fn verify_chain(pool: &sqlx::PgPool) -> AppResult<(bool, i64, Option<i
         checked += 1;
     }
     Ok((true, checked, None))
+}
+
+/// Anchor the current chain head: store (seq, hash) outside the chain so a
+/// rewrite-and-rechain attack (which passes the linear verifier) is exposed
+/// by mismatched anchors. SuperAdmin-only.
+pub async fn anchor_audit(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<serde_json::Value>> {
+    if user.role != Role::SuperAdmin {
+        return Err(AppError::Forbidden("audit anchoring is SuperAdmin-only".to_owned()));
+    }
+    let head: Option<(i64, String)> = sqlx::query_as(
+        "SELECT seq, hash FROM audit_log ORDER BY seq DESC LIMIT 1",
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some((seq, hash)) = head else {
+        return Err(AppError::BadRequest("audit log is empty; nothing to anchor".to_owned()));
+    };
+    sqlx::query("INSERT INTO audit_anchors (seq, hash, actor) VALUES ($1, $2, $3)")
+        .bind(seq)
+        .bind(&hash)
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    record(
+        &state.pool,
+        Some(user.id),
+        "audit.anchored",
+        "audit_log",
+        None,
+        serde_json::json!({ "seq": seq, "hash": hash }),
+    )
+    .await;
+    Ok(Json(serde_json::json!({ "anchored": { "seq": seq, "hash": hash } })))
+}
+
+/// Anchors still matching the chain. A rewritten+re-chained history fails
+/// here even when the linear walk says ok.
+pub async fn anchors_ok(pool: &mut sqlx::PgConnection) -> AppResult<(bool, i64)> {
+    let anchors: Vec<(i64, String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT seq, hash, at FROM audit_anchors ORDER BY seq",
+    )
+    .fetch_all(&mut *pool)
+    .await
+    .map_err(AppError::Db)?;
+    if anchors.is_empty() {
+        return Ok((true, 0));
+    }
+    // Anchors from a truncated-away chain generation (demo reset restarts
+    // seqs) are unverifiable, not violated. A mismatch is a rewrite signal
+    // ONLY when the stored row predates the anchor moment — a row stamped
+    // after the anchor is a different generation reusing the seq space.
+    for (seq, hash, anchored_at) in &anchors {
+        let stored: Option<(String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+            "SELECT hash, at FROM audit_log WHERE seq = $1",
+        )
+        .bind(seq)
+        .fetch_optional(&mut *pool)
+        .await
+        .map_err(AppError::Db)?;
+        match stored {
+            Some((h, at)) if h != *hash && at <= *anchored_at => {
+                return Ok((false, anchors.len() as i64))
+            }
+            _ => {}
+        }
+    }
+    Ok((true, anchors.len() as i64))
 }
 
 /// Raw `audit_log` row (without chain hashes); converted via [`AuditRow::into_entry`].
@@ -231,7 +305,12 @@ pub async fn verify_audit(
         return Err(AppError::Forbidden("audit verification is SuperAdmin-only".to_owned()));
     }
     let (ok, checked, first_bad) = verify_chain(&state.pool).await?;
-    Ok(Json(serde_json::json!({ "ok": ok, "checked": checked, "first_bad": first_bad })))
+    let mut conn = state.pool.acquire().await.map_err(AppError::Db)?;
+    let (anchored_ok, anchors_checked) = anchors_ok(&mut conn).await?;
+    Ok(Json(serde_json::json!({
+        "ok": ok, "checked": checked, "first_bad": first_bad,
+        "anchored_ok": anchored_ok, "anchors_checked": anchors_checked,
+    })))
 }
 
 /// Site-scoped trail for commanders: entries touching this site's entities.

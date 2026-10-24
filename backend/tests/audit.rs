@@ -226,3 +226,45 @@ async fn site_audit_includes_incident_trail() {
     assert!(other.as_array().unwrap().iter().all(|e| e["entity_id"] != iid));
 }
 
+
+#[tokio::test]
+async fn anchor_exposes_rewritten_rechained_history() {
+    let srv = TestServer::spawn().await;
+    let sa = srv.login("superadmin").await;
+    // Chain rows: KYC submit records; site create does not.
+    srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({"full_name": "Anchor Annie", "document_type": "press_id", "document_number": format!("AN-{}", uuid::Uuid::new_v4())}))
+        .send().await.unwrap();
+    let anchor: Value = srv.client.post(format!("{}/audit/anchor", srv.base))
+        .bearer_auth(&sa).send().await.unwrap().json().await.unwrap();
+    assert!(anchor["anchored"]["seq"].as_i64().unwrap() > 0);
+
+    // Attacker simulation happens INSIDE a transaction that rolls back —
+    // the shared test DB keeps its (real) chain intact and parallel tests
+    // never see the rewrite.
+    let state = test_state().await;
+    let mut tx = state.pool.begin().await.unwrap();
+    let victim: (i64, chrono::DateTime<chrono::Utc>, Option<uuid::Uuid>, String, String, Option<uuid::Uuid>, serde_json::Value) = sqlx::query_as(
+        "SELECT seq, at, actor, action, entity, entity_id, detail FROM audit_log WHERE action = 'kyc.submitted' ORDER BY seq DESC LIMIT 1")
+        .fetch_one(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE audit_log SET detail = '{\"forged\":true}'::jsonb WHERE seq = $1")
+        .bind(victim.0).execute(&mut *tx).await.unwrap();
+    let mut prev: String = sqlx::query_scalar("SELECT prev_hash FROM audit_log WHERE seq = $1")
+        .bind(victim.0).fetch_one(&mut *tx).await.unwrap();
+    type ChainRow = (i64, chrono::DateTime<chrono::Utc>, Option<uuid::Uuid>, String, String, Option<uuid::Uuid>, serde_json::Value);
+    let tail: Vec<ChainRow> = sqlx::query_as(
+        "SELECT seq, at, actor, action, entity, entity_id, detail FROM audit_log WHERE seq >= $1 ORDER BY seq")
+        .bind(victim.0).fetch_all(&mut *tx).await.unwrap();
+    for (seq, at, actor, action, entity, entity_id, detail) in tail {
+        let hash = nigrani::api::chain_hash(&prev, at, actor, &action, &entity, entity_id, &detail);
+        sqlx::query("UPDATE audit_log SET prev_hash = $1, hash = $2 WHERE seq = $3")
+            .bind(&prev).bind(&hash).bind(seq).execute(&mut *tx).await.unwrap();
+        prev = hash;
+    }
+    // Inside the forged world: linear walk passes, anchor does not.
+    let (ok, _, _) = nigrani::api::verify_chain(&mut *tx).await.unwrap();
+    assert!(ok, "re-chained history passes the linear walk");
+    let (anchored_ok, _) = nigrani::api::anchors_ok(&mut tx).await.unwrap();
+    assert!(!anchored_ok, "anchor exposes the rewrite");
+    // POSTGRES: transaction rolls back here on drop.
+}

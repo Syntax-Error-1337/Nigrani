@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useSession } from '@/shared/session'
 
 interface HubEvent {
-  kind: 'crossing' | 'kyc_decided' | 'topology' | 'incident' | 'surge'
+  kind: 'crossing' | 'kyc_decided' | 'topology' | 'incident' | 'surge' | 'capacity'
   site_id?: string
   gate_id?: string
   incident_id?: string
@@ -13,7 +13,7 @@ interface HubEvent {
 function isHubEvent(body: unknown): body is HubEvent {
   if (body === null || typeof body !== 'object' || !('kind' in body)) return false
   const kind: unknown = body.kind
-  return kind === 'crossing' || kind === 'kyc_decided' || kind === 'topology' || kind === 'incident' || kind === 'surge'
+  return kind === 'crossing' || kind === 'kyc_decided' || kind === 'topology' || kind === 'incident' || kind === 'surge' || kind === 'capacity'
 }
 
 export interface IncidentWire {
@@ -66,6 +66,8 @@ export function useEventStream() {
           queryClient.invalidateQueries({ queryKey: ['trends'] })
         } else if (body.kind === 'surge') {
           queryClient.invalidateQueries({ queryKey: ['surge'] })
+        } else if (body.kind === 'capacity') {
+          queryClient.invalidateQueries({ queryKey: ['sites'] })
         } else if (body.kind === 'kyc_decided') {
           queryClient.invalidateQueries({ queryKey: ['kyc'] })
         } else if (body.kind === 'incident') {

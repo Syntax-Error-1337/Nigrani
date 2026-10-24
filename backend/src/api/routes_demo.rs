@@ -31,6 +31,7 @@ pub async fn reset_demo(
     // an audited user fails, so TRUNCATE ... CASCADE per table is required;
     // audit itself is truncated too, so order is belt-and-braces).
     let tables = [
+        "audit_anchors",
         "audit_log",
         "face_embeddings",
         "entry_logs",
@@ -81,6 +82,7 @@ pub async fn reset_demo(
         ("entry_logs", 365),
         ("refresh_tokens", 30),
         ("audit_log", 0),
+        ("audit_anchors", 0),
         ("incidents", 365),
         ("incident_links", 365),
     ] {

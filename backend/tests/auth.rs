@@ -6,20 +6,12 @@ use common::*;
 async fn refresh_reuse_burns_session_family() {
     let srv = TestServer::spawn().await;
     // Two independent logins = two live refresh tokens for the same user.
-    let first: Value = srv
-        .client
-        .post(format!("{}/auth/login", srv.base))
-        .json(&json!({ "username": "analyst", "password": "password" }))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sa_early = srv.login("superadmin").await;
+    let (_reuse_user, first): (String, Value) = dedicated_user(&srv, &sa_early, "ForensicAnalyst").await;
     let second: Value = srv
         .client
         .post(format!("{}/auth/login", srv.base))
-        .json(&json!({ "username": "analyst", "password": "password" }))
+        .json(&json!({ "username": _reuse_user, "password": "burn-pass-123" }))
         .send()
         .await
         .unwrap()
@@ -268,45 +260,71 @@ async fn login_lockout_triggers_and_unlocks() {
 }
 
 
+
+/// Fresh user nobody else uses: tests that burn whole-user session state
+/// (logout/all, reuse burns, revocations) must not touch seeded accounts
+/// that parallel tests hold live tokens for.
+async fn dedicated_user(srv: &TestServer, superadmin: &str, role: &str) -> (String, Value) {
+    let uname = format!("burn{}{}", role.to_lowercase(), uuid::Uuid::new_v4().to_string()[..8].replace("-", ""));
+    let res = srv.client.post(format!("{}/users", srv.base))
+        .bearer_auth(superadmin).json(&json!({"username": uname, "password": "burn-pass-123", "role": role}))
+        .send().await.unwrap();
+    assert_eq!(res.status(), 200, "dedicated user create: {}", res.text().await.unwrap_or_default());
+    let tok = srv.client.post(format!("{}/auth/login", srv.base))
+        .json(&json!({"username": uname, "password": "burn-pass-123"})).send().await.unwrap();
+    assert_eq!(tok.status(), 200);
+    (uname, tok.json().await.unwrap())
+}
+
 /// Access tokens are allowlisted: self-revocation kills the token mid-TTL
 /// while sibling sessions stay valid (logged back in / other token).
 #[tokio::test]
 async fn access_token_revocation_is_instant() {
     let srv = TestServer::spawn().await;
-    let (tok_a, tok_b) = (srv.login("superadmin").await, srv.login("superadmin").await);
+    let sa = srv.login("superadmin").await;
+    let (user_a, tok_a) = dedicated_user(&srv, &sa, "SiteCommander").await;
+    // Sibling = second login of the SAME user.
+    let tok_b: Value = srv.client.post(format!("{}/auth/login", srv.base))
+        .json(&json!({"username": user_a, "password": "burn-pass-123"})).send().await.unwrap().json().await.unwrap();
     // Both live before revocation.
-    let pre = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_a).send().await.unwrap();
+    let pre = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(tok_a["access_token"].as_str().unwrap()).send().await.unwrap();
     assert_eq!(pre.status(), 200, "pre-revoke me A: {}", pre.text().await.unwrap_or_default());
-    let pre_b = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_b).send().await.unwrap();
+    let pre_b = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(tok_b["access_token"].as_str().unwrap()).send().await.unwrap();
     assert_eq!(pre_b.status(), 200, "pre-revoke me B: {}", pre_b.text().await.unwrap_or_default());
     // Revoke A; its retries stay idempotent-204.
-    assert_eq!(srv.client.post(format!("{}/auth/revoke-access", srv.base)).bearer_auth(&tok_a).send().await.unwrap().status(), 204);
-    assert_eq!(srv.client.post(format!("{}/auth/revoke-access", srv.base)).bearer_auth(&tok_a).send().await.unwrap().status(), 204);
+    assert_eq!(srv.client.post(format!("{}/auth/revoke-access", srv.base)).bearer_auth(tok_a["access_token"].as_str().unwrap()).send().await.unwrap().status(), 204);
+    assert_eq!(srv.client.post(format!("{}/auth/revoke-access", srv.base)).bearer_auth(tok_a["access_token"].as_str().unwrap()).send().await.unwrap().status(), 204);
     // A is dead instantly; B is untouched.
-    let dead = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_a).send().await.unwrap();
+    let dead = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(tok_a["access_token"].as_str().unwrap()).send().await.unwrap();
     assert_eq!(dead.status(), 401);
     assert_eq!(dead.json::<Value>().await.unwrap()["error"], "token revoked");
-    let bres = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_b).send().await.unwrap();
+    let bres = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(tok_b["access_token"].as_str().unwrap()).send().await.unwrap();
     assert_eq!(bres.status(), 200, "me B: {}", bres.text().await.unwrap_or_default());
     // A forged token (valid signature, never allowlisted) is rejected.
     // Sign one via the test binary: reuse login then delete its row.
-    let tok_c = srv.login("superadmin").await;
+    let (_, tok_c) = dedicated_user(&srv, &sa, "SiteCommander").await;
     let state = test_state_with_ns(uuid::Uuid::new_v4().to_string()).await;
-    let jti: (uuid::Uuid,) = sqlx::query_as("SELECT jti FROM access_tokens a JOIN users u ON u.id = a.user_id WHERE u.username = 'superadmin' ORDER BY a.expires_at DESC LIMIT 1")
-        .fetch_one(&state.pool).await.unwrap();
-    sqlx::query("DELETE FROM access_tokens WHERE jti = $1").bind(jti.0).execute(&state.pool).await.unwrap();
-    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_c).send().await.unwrap().status(), 401);
+    // The forged token's own jti, read from its claims (no jwt dep needed).
+    let raw_c = tok_c["access_token"].as_str().unwrap();
+    use base64::Engine as _;
+    let claims: Value = serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw_c.split('.').nth(1).unwrap()).unwrap()).unwrap();
+    let jti = claims["jti"].as_str().unwrap().to_owned();
+    sqlx::query("DELETE FROM access_tokens WHERE jti = $1::uuid").bind(jti).execute(&state.pool).await.unwrap();
+    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(tok_c["access_token"].as_str().unwrap()).send().await.unwrap().status(), 401);
 }
 
 /// Logout-all kills sibling access tokens mid-TTL, not just refresh families.
 #[tokio::test]
 async fn logout_all_kills_sibling_access_tokens() {
     let srv = TestServer::spawn().await;
-    let tok_a = srv.login("commander").await;
-    let tok_b = srv.login("commander").await;
-    assert_eq!(srv.client.post(format!("{}/auth/logout/all", srv.base)).bearer_auth(&tok_a).send().await.unwrap().status(), 200);
-    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_b).send().await.unwrap().status(), 401);
-    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_a).send().await.unwrap().status(), 401);
+    let sa = srv.login("superadmin").await;
+    let (uname, tok_a) = dedicated_user(&srv, &sa, "SiteCommander").await;
+    // Sibling token = SECOND LOGIN of the SAME user.
+    let tok_b: Value = srv.client.post(format!("{}/auth/login", srv.base))
+        .json(&json!({"username": uname, "password": "burn-pass-123"})).send().await.unwrap().json().await.unwrap();
+    assert_eq!(srv.client.post(format!("{}/auth/logout/all", srv.base)).bearer_auth(tok_a["access_token"].as_str().unwrap()).send().await.unwrap().status(), 200);
+    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(tok_b["access_token"].as_str().unwrap()).send().await.unwrap().status(), 401);
+    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(tok_a["access_token"].as_str().unwrap()).send().await.unwrap().status(), 401);
 }
 
 /// The quota is cluster-wide: two replicas sharing one namespace draw from
@@ -325,4 +343,110 @@ async fn rate_limit_quota_is_cluster_wide() {
     assert!(tripped_on_a, "quota trips on replica A");
     let res = b.client.post(format!("{}/auth/login", b.base)).json(&body).send().await.unwrap();
     assert_eq!(res.status(), 429, "replica B shares the exhausted budget");
+}
+
+#[tokio::test]
+async fn totp_enrollment_gates_login() {
+    let srv = TestServer::spawn().await;
+    let sa = srv.login("superadmin").await;
+    // Dedicated user: parallel tests keep logging in seeded users; don't
+    // gate those logins mid-test.
+    let uname = format!("totpuser{}", uuid::Uuid::new_v4().to_string()[..10].replace("-", ""));
+    srv.client.post(format!("{}/users", srv.base))
+        .bearer_auth(&sa).json(&json!({"username": uname, "password": "Str0ng-pass!", "role": "VerificationOfficer"}))
+        .send().await.unwrap();
+    let login = |code: Option<String>| {
+        let mut b = json!({"username": uname, "password": "Str0ng-pass!"});
+        if let Some(c) = code { b["totp_code"] = json!(c); }
+        srv.client.post(format!("{}/auth/login", srv.base)).json(&b).send()
+    };
+    // Enroll (second login for the setup bearer).
+    let first: Value = login(None).await.unwrap().json().await.unwrap();
+    let setup: Value = srv.client.post(format!("{}/auth/totp/setup", srv.base))
+        .bearer_auth(first["access_token"].as_str().unwrap()).send().await.unwrap().json().await.unwrap();
+    let secret = setup["secret"].as_str().unwrap().to_owned();
+    let code = totp_code(&secret, chrono::Utc::now().timestamp() / 30);
+    let enable: Value = srv.client.post(format!("{}/auth/totp/enable", srv.base))
+        .bearer_auth(first["access_token"].as_str().unwrap()).json(&json!({"code": code})).send().await.unwrap().json().await.unwrap();
+    assert_eq!(enable["enabled"], true);
+
+    // Login without code → totp_required; with stale/wrong code → invalid.
+    let no_code = login(None).await.unwrap();
+    assert_eq!(no_code.status(), 401);
+    let body: Value = no_code.json().await.unwrap();
+    assert_eq!(body["error"], "totp_required");
+    let wrong = login(Some("000000".to_owned())).await.unwrap();
+    assert_eq!(wrong.status(), 401);
+
+    // With a live-window code → in.
+    let good = login(Some(totp_code(&secret, chrono::Utc::now().timestamp() / 30))).await.unwrap();
+    assert_eq!(good.status(), 200);
+    let tok: Value = good.json().await.unwrap();
+
+    // Disable with a code → back to password-only.
+    let disable = srv.client.post(format!("{}/auth/totp/disable", srv.base))
+        .bearer_auth(tok["access_token"].as_str().unwrap())
+        .json(&json!({"code": totp_code(&secret, chrono::Utc::now().timestamp() / 30)})).send().await.unwrap();
+    assert_eq!(disable.status(), 200);
+    let plain = login(None).await.unwrap();
+    assert_eq!(plain.status(), 200);
+}
+
+/// Compute a TOTP at an arbitrary step (mirror of the server recipe).
+fn totp_code(secret: &str, step: i64) -> String {
+    use hmac::{Hmac, Mac};
+    use sha1::Sha1;
+    let decoded = data_encoding::BASE32_NOPAD.decode(secret.to_ascii_uppercase().as_bytes()).unwrap();
+    let mut mac = Hmac::<Sha1>::new_from_slice(&decoded).unwrap();
+    mac.update(&(step as u64).to_be_bytes());
+    let out = mac.finalize().into_bytes();
+    let off = (out[19] & 0x0f) as usize;
+    let code = (u32::from_be_bytes(out[off..off + 4].try_into().unwrap()) & 0x7fff_ffff) % 1_000_000;
+    format!("{code:06}")
+}
+
+#[tokio::test]
+async fn session_revoke_kills_other_session_not_current() {
+    let srv = TestServer::spawn().await;
+    // Two independent logins = two sessions (dedicated user — parallel
+    // tests must not burn these tokens mid-test).
+    let sa = srv.login("superadmin").await;
+    let (uname, a) = dedicated_user(&srv, &sa, "SiteCommander").await;
+    let b: Value = srv.client.post(format!("{}/auth/login", srv.base))
+        .json(&json!({"username": uname, "password": "burn-pass-123"})).send().await.unwrap().json().await.unwrap();
+
+    // Shared DB: other tests leave live commander sessions behind. Identify
+    // OUR two by each token's own current-session marker.
+    let list = |tok: &str, base: String| {
+        let tok = tok.to_owned();
+        async move {
+            let v: Value = reqwest::Client::new().get(format!("{base}/auth/sessions"))
+                .bearer_auth(tok).send().await.unwrap().json().await.unwrap();
+            v
+        }
+    };
+    let a_list = list(a["access_token"].as_str().unwrap(), srv.base.clone()).await;
+    let b_list = list(b["access_token"].as_str().unwrap(), srv.base.clone()).await;
+    let a_sid = a_list["sessions"].as_array().unwrap().iter()
+        .find(|s| s["current"] == true).unwrap()["session_id"].as_str().unwrap().to_owned();
+    let b_sid = b_list["sessions"].as_array().unwrap().iter()
+        .find(|s| s["current"] == true).unwrap()["session_id"].as_str().unwrap().to_owned();
+    assert_ne!(a_sid, b_sid);
+
+    // Revoking self refused; revoking the other one works.
+    let self_res = srv.client.post(format!("{}/auth/sessions/{}/revoke", srv.base, a_sid))
+        .bearer_auth(a["access_token"].as_str().unwrap()).send().await.unwrap();
+    assert_eq!(self_res.status(), 400);
+    let kill = srv.client.post(format!("{}/auth/sessions/{}/revoke", srv.base, b_sid))
+        .bearer_auth(a["access_token"].as_str().unwrap()).send().await.unwrap();
+    assert_eq!(kill.status(), 200);
+
+    // Session B's access token dies instantly (allowlist row revoked).
+    let b_check = srv.client.get(format!("{}/auth/me", srv.base))
+        .bearer_auth(b["access_token"].as_str().unwrap()).send().await.unwrap();
+    assert_eq!(b_check.status(), 401, "revoked session access token dies immediately");
+    // And B's refresh is dead too.
+    let b_refresh = srv.client.post(format!("{}/auth/refresh", srv.base))
+        .json(&json!({"refresh_token": b["refresh_token"].as_str().unwrap()})).send().await.unwrap();
+    assert_eq!(b_refresh.status(), 401);
 }

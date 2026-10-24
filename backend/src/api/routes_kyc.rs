@@ -25,6 +25,9 @@ pub struct SubmitKyc {
     pub document_type: String,
     pub document_number: String,
     pub photo_url: Option<String>,
+    /// Applicant's consent to biometric identification (required before
+    /// their photo may be enrolled as a face embedding).
+    pub photo_consent: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -285,8 +288,8 @@ pub async fn submit_kyc(
         ));
     }
     let row: KycRow = sqlx::query_as(&format!(
-        "INSERT INTO kyc_applications (full_name, organization, document_type, document_number, photo_url, doc_fingerprint, photo_hash)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {ROW_COLS}"
+        "INSERT INTO kyc_applications (full_name, organization, document_type, document_number, photo_url, doc_fingerprint, photo_hash, photo_consent)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {ROW_COLS}"
     ))
     .bind(body.full_name.trim())
     .bind(body.organization.as_deref().unwrap_or(""))
@@ -295,6 +298,7 @@ pub async fn submit_kyc(
     .bind(crypto.encrypt(body.photo_url.as_deref().unwrap_or(""))?)
     .bind(&fingerprint)
     .bind(&photo_hash)
+    .bind(body.photo_consent.unwrap_or(false))
     .fetch_one(&state.pool)
     .await
     .map_err(AppError::Db)?;

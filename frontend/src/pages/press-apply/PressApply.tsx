@@ -7,6 +7,7 @@ export default function PressApply() {
     document_type: 'press_id',
     document_number: '',
     photo_url: '',
+    photo_consent: false,
   })
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
   const [message, setMessage] = useState<string | null>(null)
@@ -111,6 +112,18 @@ export default function PressApply() {
                 reader.readAsDataURL(file)
               }}
             />
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.photo_consent}
+              onChange={(e) => setForm({ ...form, photo_consent: e.target.checked })}
+              className="mt-0.5"
+            />
+            <span>
+              मैं सहमत हूँ — I consent to my photo being used for identity
+              verification at the gates (biometric processing).
+            </span>
           </label>
           {message ? (
             <p role="alert" className="border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">

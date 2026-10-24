@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -19,6 +19,8 @@ use crate::infrastructure::auth::{
 pub struct LoginBody {
     pub username: String,
     pub password: String,
+    /// Required when the account has TOTP enabled (authenticator app code).
+    pub totp_code: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +54,8 @@ struct DbUser {
     active: bool,
     failed_logins: i32,
     locked_until: Option<chrono::DateTime<chrono::Utc>>,
+    totp_enabled_at: Option<chrono::DateTime<chrono::Utc>>,
+    totp_secret: Option<String>,
 }
 
 /// Strikes before a lock engages; lock length after the final strike.
@@ -65,14 +69,16 @@ async fn allowlist_mint(
     pool: &sqlx::PgPool,
     user_id: uuid::Uuid,
     jti: uuid::Uuid,
+    session_id: uuid::Uuid,
 ) -> AppResult<()> {
     sqlx::query("DELETE FROM access_tokens WHERE expires_at < now()")
         .execute(pool)
         .await
         .map_err(AppError::Db)?;
-    sqlx::query("INSERT INTO access_tokens (jti, user_id, expires_at) VALUES ($1, $2, now() + interval '15 minutes')")
+    sqlx::query("INSERT INTO access_tokens (jti, user_id, expires_at, session_id) VALUES ($1, $2, now() + interval '15 minutes', $3)")
         .bind(jti)
         .bind(user_id)
+        .bind(session_id)
         .execute(pool)
         .await
         .map_err(AppError::Db)?;
@@ -122,7 +128,7 @@ pub async fn login(
     }
     let row: Option<DbUser> = sqlx::query_as::<_, DbUser>(
         r#"SELECT u.id, u.username, u.password_hash, r.name AS role, u.active,
-                  u.failed_logins, u.locked_until
+                  u.failed_logins, u.locked_until, u.totp_enabled_at, u.totp_secret
            FROM users u JOIN roles r ON r.id = u.role_id
            WHERE u.username = $1"#,
     )
@@ -181,6 +187,22 @@ pub async fn login(
         }
         return Err(e);
     }
+    // Second factor: checked AFTER the password verifies (standard 2FA
+    // ordering); a wrong authenticator code fails without consuming a
+    // lockout strike (typos must not self-lock an operator).
+    if row.totp_enabled_at.is_some() {
+        let Some(code) = body.totp_code.as_deref() else {
+            return Err(AppError::Unauthorized("totp_required".to_owned()));
+        };
+        let secret = row.totp_secret.as_deref().ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!("totp enabled but secret missing"))
+        })?;
+        let ok = crate::infrastructure::auth::verify_totp(secret, code)?;
+        if !ok {
+            super::routes_audit::record(&state.pool, Some(row.id), "login.failed", "session", None, serde_json::json!({"username": body.username, "totp": true})).await;
+            return Err(AppError::Unauthorized("invalid credentials".to_owned()));
+        }
+    }
     // Success clears the strike counter.
     if row.failed_logins > 0 {
         sqlx::query("UPDATE users SET failed_logins = 0 WHERE id = $1")
@@ -193,12 +215,14 @@ pub async fn login(
     let role = Role::from_name(&row.role)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role {}", row.role)))?;
     let (access_token, jti) = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
-    allowlist_mint(&state.pool, row.id, jti).await?;
+    let session_id = Uuid::new_v4();
+    allowlist_mint(&state.pool, row.id, jti, session_id).await?;
     let (refresh_token, stored_hash) = new_refresh_token();
-    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at, session_id) VALUES ($1, $2, $3, $4)")
         .bind(row.id)
         .bind(&stored_hash)
         .bind(refresh_expiry())
+        .bind(session_id)
         .execute(&state.pool)
         .await
         .map_err(AppError::Db)?;
@@ -214,13 +238,14 @@ pub async fn refresh(
     Json(body): Json<RefreshBody>,
 ) -> AppResult<Json<LoginResponse>> {
     let stored = hex_digest(&body.refresh_token);
-    let rec: Option<(Uuid, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>)> =
-        sqlx::query_as("SELECT user_id, expires_at, revoked_at FROM refresh_tokens WHERE token_hash = $1")
+    type RefreshRec = (Uuid, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, Option<Uuid>);
+    let rec: Option<RefreshRec> =
+        sqlx::query_as("SELECT user_id, expires_at, revoked_at, session_id FROM refresh_tokens WHERE token_hash = $1")
             .bind(&stored)
             .fetch_optional(&state.pool)
             .await
             .map_err(AppError::Db)?;
-    let Some((user_id, expires_at, revoked_at)) = rec else {
+    let Some((user_id, expires_at, revoked_at, session_id)) = rec else {
         return Err(AppError::Unauthorized("invalid refresh token".to_owned()));
     };
     if expires_at < chrono::Utc::now() {
@@ -245,7 +270,7 @@ pub async fn refresh(
         .map_err(AppError::Db)?;
     let row: DbUser = sqlx::query_as::<_, DbUser>(
         r#"SELECT u.id, u.username, u.password_hash, r.name AS role, u.active,
-                  u.failed_logins, u.locked_until
+                  u.failed_logins, u.locked_until, u.totp_enabled_at, u.totp_secret
            FROM users u JOIN roles r ON r.id = u.role_id
            WHERE u.id = $1"#,
     )
@@ -264,12 +289,13 @@ pub async fn refresh(
     let role = Role::from_name(&row.role)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role {}", row.role)))?;
     let (access_token, jti) = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
-    allowlist_mint(&state.pool, row.id, jti).await?;
+    allowlist_mint(&state.pool, row.id, jti, session_id.unwrap_or_else(Uuid::new_v4)).await?;
     let (refresh_token, new_hash) = new_refresh_token();
-    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at, session_id) VALUES ($1, $2, $3, $4)")
         .bind(row.id)
         .bind(&new_hash)
         .bind(refresh_expiry())
+        .bind(session_id)
         .execute(&state.pool)
         .await
         .map_err(AppError::Db)?;
@@ -405,4 +431,198 @@ pub async fn list_users(
         }
     }
     Ok(Json(out))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TotpBody {
+    pub code: String,
+}
+
+/// Begin TOTP enrollment: mint a secret (not yet active) and hand back the
+/// otpauth:// URI for any authenticator app. Re-running overwrites the
+/// pending secret.
+pub async fn totp_setup(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<Json<serde_json::Value>> {
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT totp_enabled_at FROM users WHERE id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    if row.is_some_and(|(e,)| e.is_some()) {
+        return Err(AppError::Conflict("totp already enabled — disable first".to_owned()));
+    }
+    let secret = crate::infrastructure::auth::new_totp_secret();
+    sqlx::query("UPDATE users SET totp_secret = $1 WHERE id = $2")
+        .bind(&secret)
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    let uri = format!("otpauth://totp/Nigrani:{}?secret={}&issuer=Nigrani", user.username, secret);
+    Ok(Json(serde_json::json!({ "secret": secret, "otpauth_uri": uri })))
+}
+
+/// Confirm enrollment by presenting a valid code.
+pub async fn totp_enable(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(body): Json<TotpBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    let secret: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT totp_secret FROM users WHERE id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some((Some(secret),)) = secret else {
+        return Err(AppError::BadRequest("run totp/setup first".to_owned()));
+    };
+    if !crate::infrastructure::auth::verify_totp(&secret, &body.code)? {
+        return Err(AppError::BadRequest("code did not verify — retry with the current code".to_owned()));
+    }
+    sqlx::query("UPDATE users SET totp_enabled_at = now() WHERE id = $1")
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    super::routes_audit::record(&state.pool, Some(user.id), "auth.totp_enabled", "user", Some(user.id), serde_json::json!({})).await;
+    Ok(Json(serde_json::json!({ "enabled": true })))
+}
+
+/// Turn 2FA off (requires a valid code — possession proof).
+pub async fn totp_disable(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(body): Json<TotpBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    let secret: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT totp_secret FROM users WHERE id = $1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some((Some(secret),)) = secret else {
+        return Err(AppError::BadRequest("totp not enrolled".to_owned()));
+    };
+    if !crate::infrastructure::auth::verify_totp(&secret, &body.code)? {
+        return Err(AppError::BadRequest("code did not verify".to_owned()));
+    }
+    sqlx::query("UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL WHERE id = $1")
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    super::routes_audit::record(&state.pool, Some(user.id), "auth.totp_disabled", "user", Some(user.id), serde_json::json!({})).await;
+    Ok(Json(serde_json::json!({ "enabled": false })))
+}
+
+/// The caller's live sessions (one per login; rotations inherit the id).
+/// The caller's own session is marked so the console can say "this device".
+pub async fn list_sessions(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    headers: axum::http::HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+    let current_session: Option<Uuid> = match token {
+        Some(raw) => sqlx::query_scalar(
+            "SELECT a.session_id FROM access_tokens a WHERE a.jti = $1 AND a.revoked_at IS NULL",
+        )
+        .bind(verify_access_token(&state.jwt_secret, raw)?.jti)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?,
+        None => None,
+    };
+    let sessions: Vec<(Uuid, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT session_id, min(created_at), max(expires_at) FROM refresh_tokens
+         WHERE user_id = $1 AND session_id IS NOT NULL AND revoked_at IS NULL AND expires_at > now()
+         GROUP BY session_id ORDER BY min(created_at) DESC",
+    )
+    .bind(user.id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let list: Vec<serde_json::Value> = sessions
+        .into_iter()
+        .map(|(sid, started, expires)| {
+            serde_json::json!({
+                "session_id": sid,
+                "started": started,
+                "expires": expires,
+                "current": current_session == Some(sid),
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "sessions": list })))
+}
+
+/// Revoke one session family: its refresh tokens AND its live access
+/// tokens die immediately (allowlist carries session_id since 0024).
+/// Revoking the caller's own current session is refused — use logout.
+pub async fn revoke_session(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(session_id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+    let current_session: Option<Uuid> = match token {
+        Some(raw) => sqlx::query_scalar(
+            "SELECT a.session_id FROM access_tokens a WHERE a.jti = $1 AND a.revoked_at IS NULL",
+        )
+        .bind(verify_access_token(&state.jwt_secret, raw)?.jti)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?,
+        None => None,
+    };
+    if current_session == Some(session_id) {
+        return Err(AppError::BadRequest("current session — use logout instead".to_owned()));
+    }
+    let refresh_hit = sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = now()
+         WHERE user_id = $1 AND session_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(user.id)
+    .bind(session_id)
+    .execute(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .rows_affected();
+    let access_hit = sqlx::query(
+        "UPDATE access_tokens SET revoked_at = now()
+         WHERE user_id = $1 AND session_id = $2 AND revoked_at IS NULL",
+    )
+    .bind(user.id)
+    .bind(session_id)
+    .execute(&state.pool)
+    .await
+    .map_err(AppError::Db)?
+    .rows_affected();
+    if refresh_hit == 0 && access_hit == 0 {
+        return Err(AppError::NotFound("no live session with that id".to_owned()));
+    }
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "auth.session_revoked",
+        "session",
+        None,
+        serde_json::json!({ "session_id": session_id }),
+    )
+    .await;
+    Ok(Json(serde_json::json!({ "revoked": true })))
 }

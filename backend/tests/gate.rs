@@ -389,3 +389,46 @@ async fn gate_duty_assignment_flow() {
     assert!(cleared["duty_officer"].is_null());
 }
 
+
+#[tokio::test]
+async fn capacity_cap_refuses_entry_and_announces() {
+    let srv = TestServer::spawn().await;
+    let sa = srv.login("superadmin").await;
+    let site: Value = srv.client.post(format!("{}/sites", srv.base))
+        .bearer_auth(&sa).json(&json!({"name": format!("Cap {}", uuid::Uuid::new_v4()), "location": "x"}))
+        .send().await.unwrap().json().await.unwrap();
+    let sid = site["id"].as_str().unwrap();
+    let gate: Value = srv.client.post(format!("{}/sites/{sid}/gates", srv.base))
+        .bearer_auth(&sa).json(&json!({"name": "G", "direction": "both"}))
+        .send().await.unwrap().json().await.unwrap();
+    let gid = gate["id"].as_str().unwrap();
+
+    // Uncapped: two entries fine.
+    for _ in 0..2 {
+        let r = srv.client.post(format!("{}/sites/{sid}/gates/{gid}/events", srv.base))
+            .bearer_auth(&sa).json(&json!({"direction": "entry", "method": "manual"})).send().await.unwrap();
+        assert_eq!(r.status(), 200);
+    }
+    // Cap = 2 → next entry 403.
+    let set = srv.client.post(format!("{}/sites/{sid}/capacity", srv.base))
+        .bearer_auth(&sa).json(&json!({"capacity": 2})).send().await.unwrap();
+    assert_eq!(set.status(), 200);
+    let refused = srv.client.post(format!("{}/sites/{sid}/gates/{gid}/events", srv.base))
+        .bearer_auth(&sa).json(&json!({"direction": "entry", "method": "manual"})).send().await.unwrap();
+    assert_eq!(refused.status(), 403, "at-capacity entry refused");
+    let body: Value = refused.json().await.unwrap();
+    assert!(body["error"].as_str().unwrap().contains("capacity"));
+
+    // An EXIT frees room → entry accepted again.
+    let out = srv.client.post(format!("{}/sites/{sid}/gates/{gid}/events", srv.base))
+        .bearer_auth(&sa).json(&json!({"direction": "exit", "method": "manual"})).send().await.unwrap();
+    assert_eq!(out.status(), 200);
+    let r = srv.client.post(format!("{}/sites/{sid}/gates/{gid}/events", srv.base))
+        .bearer_auth(&sa).json(&json!({"direction": "entry", "method": "manual"})).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+
+    // Clear the cap (NULL).
+    let clear = srv.client.post(format!("{}/sites/{sid}/capacity", srv.base))
+        .bearer_auth(&sa).json(&json!({"capacity": null})).send().await.unwrap();
+    assert_eq!(clear.status(), 200);
+}

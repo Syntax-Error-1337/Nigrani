@@ -175,6 +175,42 @@ pub async fn record_event(
         }
         (EntryMethod::Manual, _) => None,
     };
+    // Entry-capacity cap (s-H4): net-present (entries − exits, last 12 h)
+    // at or above the site cap refuses the ENTRY with a loud 403 and
+    // announces on the hub so every console hears it.
+    if direction == GateDirection::Entry {
+        let cap: Option<i32> = sqlx::query_scalar(
+            "SELECT capacity FROM sites WHERE id = $1",
+        )
+        .bind(site_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?
+        .flatten();
+        if let Some(cap) = cap {
+            let occupancy: i64 = sqlx::query_scalar(
+                "SELECT count(*) FILTER (WHERE l.direction = 'entry')
+                       - count(*) FILTER (WHERE l.direction = 'exit')
+                 FROM entry_logs l JOIN gates g ON g.id = l.gate_id
+                 WHERE g.site_id = $1 AND l.recorded_at > now() - interval '12 hours'",
+            )
+            .bind(site_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+            if occupancy >= cap as i64 {
+                state.hub.publish(&super::events::HubEvent::Capacity {
+                    at: chrono::Utc::now(),
+                    site_id,
+                    occupancy,
+                    capacity: cap,
+                });
+                return Err(AppError::Forbidden(format!(
+                    "site at capacity ({occupancy}/{cap}) — entry refused"
+                )));
+            }
+        }
+    }
     let snapshot_key = body.snapshot_key.unwrap_or_default();
     if !valid_snapshot_key(&snapshot_key) {
         return Err(AppError::BadRequest("invalid snapshot key".to_owned()));

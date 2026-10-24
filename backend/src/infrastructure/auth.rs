@@ -98,3 +98,39 @@ mod hex {
             .collect()
     }
 }
+
+/// RFC 6238 TOTP (SHA-1, 30 s, 6 digits) — the authenticator-app standard.
+/// ±1 step tolerance covers clock drift between server and phone.
+pub fn totp(secret_base32: &str, at_step: i64) -> AppResult<String> {
+    use hmac::Mac;
+    use sha1::Sha1;
+    let secret = data_encoding::BASE32_NOPAD
+        .decode(secret_base32.to_ascii_uppercase().as_bytes())
+        .map_err(|_| AppError::Internal(anyhow::anyhow!("bad totp secret encoding")))?;
+    let mut mac = hmac::Hmac::<Sha1>::new_from_slice(&secret)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("hmac init: {e}")))?;
+    mac.update(&(at_step as u64).to_be_bytes());
+    let out = mac.finalize().into_bytes();
+    let off = (out[19] & 0x0f) as usize;
+    let code = (u32::from_be_bytes(out[off..off + 4].try_into().unwrap()) & 0x7fff_ffff) % 1_000_000;
+    Ok(format!("{code:06}"))
+}
+
+/// Verify a presented code against the secret at ±1 step. Unused steps
+/// never validate — a code typed late just needs the current window.
+pub fn verify_totp(secret_base32: &str, code: &str) -> AppResult<bool> {
+    let step = Utc::now().timestamp() / 30;
+    for off in [-1i64, 0, 1] {
+        if totp(secret_base32, step + off)? == code {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Fresh base32 secret for enrollment (160 bits — RFC 6238 minimum).
+pub fn new_totp_secret() -> String {
+    let mut bytes = [0u8; 20];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    data_encoding::BASE32_NOPAD.encode(&bytes)
+}

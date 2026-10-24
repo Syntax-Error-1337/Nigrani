@@ -25,6 +25,7 @@ function denialCopy(reason: unknown): string {
 /// Record-time refusal mirrors the same copy (server messages are literal
 /// constants quoted in backend tests).
 function recordDenialCopy(serverMessage: string): string | null {
+  if (serverMessage.includes('at capacity')) return 'Site at capacity — hold the queue, admit on exit'
   if (serverMessage.includes('press card revoked')) return denialCopy('revoked')
   if (serverMessage.includes('not approved')) return denialCopy('not_approved')
   if (serverMessage.includes('press card expired')) return denialCopy('expired')

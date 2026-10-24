@@ -54,12 +54,30 @@ function detailLines(detail: unknown): [string, string][] {
       const ok: unknown = body.ok
       const checked: unknown = body.checked
       const firstBad: unknown = 'first_bad' in body ? body.first_bad : null
+      const anchoredOk: unknown = 'anchored_ok' in body ? body.anchored_ok : true
+      const anchorsChecked: unknown = 'anchors_checked' in body ? body.anchors_checked : 0
+      const anchorNote =
+        anchorsChecked === 0 || typeof anchorsChecked !== 'number'
+          ? ''
+          : anchoredOk === true
+            ? ` · ${anchorsChecked} anchor(s) hold`
+            : ' · ANCHOR MISMATCH — history was rewritten'
       setVerdict(
         ok === true
-          ? `Chain intact — ${typeof checked === 'number' ? checked : '?'} entries checked`
+          ? `Chain intact — ${typeof checked === 'number' ? checked : '?'} entries checked${anchorNote}`
           : `CHAIN BROKEN at seq ${typeof firstBad === 'number' ? firstBad : '?'}`,
       )
     }
+  }
+
+  async function anchor() {
+    setNotice(null)
+    const res = await apiFetch('/audit/anchor', { method: 'POST' })
+    if (!res.ok) {
+      setNotice(`Anchor refused (${res.status})`)
+      return
+    }
+    setVerdict('Chain head anchored — record the hash outside this system')
   }
 
   return (
@@ -80,6 +98,11 @@ function detailLines(detail: unknown): [string, string][] {
         <button onClick={verify} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
           Verify chain
         </button>
+        {global === true ? (
+          <button onClick={anchor} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+            Anchor head
+          </button>
+        ) : null}
       </div>
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
       {verdict ? <p className="mt-2 font-ledger text-xs">{verdict}</p> : null}
