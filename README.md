@@ -1,11 +1,20 @@
-# Nigrani
+# Nigrani निगरानी
 
-Protest-site access management: RBAC API (Rust/axum) + operations console
-(Vite/React). Phases 1–4 shipped plus hardening: provisioning, audit trail,
-retention, QR cards, demo reset, capture review, incident lifecycle +
-realtime, KYC duplicates + revocation, card lifecycle (expiry, per-print
-serials, reissue, offline CRL), login lockout, topology retirement,
-snapshot lifecycle.
+> **हर प्रवेश पर निगरानी — har pravesh par nigrani.**
+> Vigilance at every entry, accountability at every step.
+
+Crowd-access command for protest sites: watch every gate, screen every
+person, and keep an unforgeable record of it all. Rust/axum RBAC API +
+Vite/React operations console. Phases 1–4 shipped plus hardening:
+provisioning, audit trail, retention, QR cards, demo reset, capture
+review, incident lifecycle + realtime, KYC duplicates + revocation, card
+lifecycle (expiry, per-print serials, reissue, offline CRL), login
+lockout, topology retirement, snapshot lifecycle.
+
+**Nigrani** (निगरानी — "vigilance") names the job, not the vendor: one
+shared watch over who enters, why, and with what proof — every crossing
+hashed into a tamper-evident audit chain, every card liveness-checkable,
+every decision reproducible in a courtroom pack.
 
 Console styling follows the UX4G 2.0 "Saffron Green Navy" India theme: GoI
 portal palette, Noto Sans (Hindi + English), GIGW 3.0 accessibility
