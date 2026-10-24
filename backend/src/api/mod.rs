@@ -13,6 +13,7 @@ mod routes_kyc;
 mod routes_sites;
 pub mod state;
 mod routes_forensics;
+pub use routes_forensics::escalate_overdue;
 mod routes_gate;
 
 use axum::routing::{get, post};

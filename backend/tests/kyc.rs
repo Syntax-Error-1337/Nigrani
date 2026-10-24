@@ -873,7 +873,7 @@ async fn card_lifecycle_crl_lists_revoked_expired_superseded() {
     assert_eq!(expired["serial"], expired_card["serial"]);
     let superseded = find_entry(&crl["superseded"], &superseded_id).expect("superseded entry");
     assert_eq!(superseded["serial"], old_card["serial"]);
-    // Gate role cannot export the CRL.
+    // Gate role CAN export the CRL (offline kiosk cache — s2/G2).
     let res = srv
         .client
         .get(format!("{}/kyc/crl", srv.base))
@@ -881,7 +881,7 @@ async fn card_lifecycle_crl_lists_revoked_expired_superseded() {
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), 403);
+    assert_eq!(res.status(), 200, "gate operator fetches CRL for offline cache");
 }
 
 #[tokio::test]
@@ -1068,4 +1068,57 @@ async fn photo_hash_duplicates_flagged() {
     // The 2 MB axum body limit intercepts before the handler: 413 is a
     // clean refusal too.
     assert_eq!(res.status(), 413);
+}
+
+#[tokio::test]
+async fn card_format_v0_legacy_payloads_verify_again() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let gate = srv.login("gate").await;
+    let name = "Legacy Lata";
+    let id = approve_application(&srv, &verifier, name).await;
+    let state = test_state().await;
+
+    // Legacy recipe (pre-0017): HMAC over (id, name, org, issued_at).
+    let issued_at = 1_700_000_000i64;
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    use base64::Engine as _;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&state.jwt_secret).unwrap();
+    mac.update(id.parse::<uuid::Uuid>().unwrap().as_bytes());
+    mac.update(name.as_bytes());
+    mac.update("".as_bytes()); // organization empty
+    mac.update(issued_at.to_be_bytes().as_ref());
+    let sig = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+    let legacy = json!({
+        "application_id": id, "full_name": name, "organization": "",
+        "issued_at": "2023-11-14T22:13:20Z", "signature": sig,
+    });
+    assert_eq!(scan(&srv, &gate, &legacy).await["reason"], "ok");
+
+    // One flipped signature byte -> forged.
+    let mut forged = legacy.clone();
+    forged["signature"] = json!(format!("{}A", &sig[..sig.len() - 1]));
+    assert_eq!(scan(&srv, &gate, &forged).await["reason"], "bad_signature");
+
+    // Revocation still bites a legacy card.
+    sqlx::query("UPDATE kyc_applications SET card_revoked_at = now() WHERE id = $1")
+        .bind(id.parse::<uuid::Uuid>().unwrap())
+        .execute(&state.pool).await.unwrap();
+    assert_eq!(scan(&srv, &gate, &legacy).await["reason"], "revoked");
+
+    // Current v1 cards still scan ok (mint one on a fresh application).
+    let id2 = approve_application(&srv, &verifier, "Modern Mohan").await;
+    let card1 = card(&srv, &verifier, &id2).await;
+    assert_eq!(card1["v"], 1);
+}
+
+#[tokio::test]
+async fn crl_is_fetchable_by_gate_operator_for_offline_cache() {
+    let srv = TestServer::spawn().await;
+    let gate = srv.login("gate").await;
+    let res = srv.client.get(format!("{}/kyc/crl", srv.base)).bearer_auth(&gate).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+    let body: serde_json::Value = res.json().await.unwrap();
+    assert!(body.get("revoked").is_some());
 }

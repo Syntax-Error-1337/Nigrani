@@ -416,3 +416,34 @@ async fn stats_reflect_baseline() {
     assert!(stats["gates"].as_i64().unwrap() >= 1);
     assert!(stats["pending_kyc"].as_i64().unwrap() >= 0);
 }
+
+#[tokio::test]
+async fn sla_sweeper_escalates_overdue_without_any_read() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let site_res = srv.client.post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin).json(&json!({"name": format!("Sweeper Site {}", uuid::Uuid::new_v4()), "location": "Delhi"}))
+        .send().await.unwrap();
+    assert_eq!(site_res.status(), 200, "site create: {}", site_res.text().await.unwrap_or_default());
+    let site: Value = site_res.json().await.unwrap();
+    let case: Value = srv.client.post(format!("{}/sites/{}/incidents", srv.base, site["id"].as_str().unwrap()))
+        .bearer_auth(&superadmin).json(&json!({"title": "Overdue case", "description": "d"}))
+        .send().await.unwrap().json().await.unwrap();
+    // Backdate SLA directly; nobody opens the list.
+    let state = test_state().await;
+    sqlx::query("UPDATE incidents SET sla_due_at = now() - interval '1 day' WHERE id = $1")
+        .bind(case["id"].as_str().unwrap().parse::<uuid::Uuid>().unwrap())
+        .execute(&state.pool).await.unwrap();
+
+    let stamped = nigrani::api::escalate_overdue(&state.pool, &state.hub).await;
+    assert!(stamped >= 1, "sweeper must stamp at least our case");
+    let list: Value = srv.client.get(format!("{}/sites/{}/incidents", srv.base, site["id"].as_str().unwrap()))
+        .bearer_auth(&superadmin).send().await.unwrap().json().await.unwrap();
+    let row = list.as_array().unwrap().iter().find(|r| r["id"] == case["id"]).unwrap();
+    assert!(row["escalated_at"].is_string(), "case now carries escalation stamp");
+    // Audit row exists with system actor (NULL actor_id).
+    let sys_audit: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action = 'incident.escalated' AND actor IS NULL")
+        .fetch_one(&state.pool).await.unwrap();
+    assert!(sys_audit >= 1);
+}

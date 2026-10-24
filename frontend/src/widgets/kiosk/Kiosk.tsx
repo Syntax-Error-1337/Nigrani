@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/shared/api'
 import { useGateLog } from '@/entities/gate-log'
 import type { PressCard } from '@/entities/kyc'
@@ -60,9 +60,66 @@ export default function Kiosk({
   const [uploading, setUploading] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
+  const [offline, setOffline] = useState(!navigator.onLine)
   const log = useGateLog(siteId, gateId)
   const pending = useOutbox()
   const [flushing, setFlushing] = useState(false)
+  const crl = useRef<CachedCrl | null>(null)
+
+  // --- Offline support ---
+  // Deny list cached from the CRL (refreshed every 5 min while online);
+  // offline scans deny known-dead cards and otherwise bounce to the
+  // audited manual override (browser can't recompute the server HMAC).
+  interface CachedCrl {
+    fetched_at: string
+    revoked: { application_id: string }[]
+    expired: { application_id: string }[]
+    superseded: { application_id: string }[]
+  }
+  const CRL_KEY = 'sg-crl'
+
+  function loadCachedCrl() {
+    try {
+      const raw = localStorage.getItem(CRL_KEY)
+      if (raw) crl.current = JSON.parse(raw) as CachedCrl
+    } catch {
+      crl.current = null
+    }
+  }
+
+  async function refreshCrl() {
+    if (!navigator.onLine) return
+    try {
+      const res = await apiFetch('/kyc/crl')
+      if (!res.ok) return
+      const body = (await res.json()) as Omit<CachedCrl, 'fetched_at'>
+      const cached: CachedCrl = { ...body, fetched_at: new Date().toISOString() }
+      try {
+        localStorage.setItem(CRL_KEY, JSON.stringify(cached))
+      } catch {
+        // quota — keep in-memory copy only
+      }
+      crl.current = cached
+    } catch {
+      // unreachable — stale cache stays in place
+    }
+  }
+
+  useEffect(() => {
+    loadCachedCrl()
+    void refreshCrl()
+    const tick = setInterval(() => void refreshCrl(), 5 * 60 * 1000)
+    const goOffline = () => setOffline(true)
+    const goOnline = () => setOffline(false)
+    window.addEventListener('offline', goOffline)
+    window.addEventListener('online', goOnline)
+    return () => {
+      clearInterval(tick)
+      window.removeEventListener('offline', goOffline)
+      window.removeEventListener('online', goOnline)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Auto-flush on mount (queued from a dead tab) and on reconnect.
   // `log` intentionally excluded — the query object is unstable and this
@@ -116,7 +173,14 @@ export default function Kiosk({
       setNotice('Card payload is not valid JSON')
       return
     }
-    const res = await apiFetch('/kyc/verify', { method: 'POST', body: JSON.stringify(parsed) })
+    let res: Response
+    try {
+      res = await apiFetch('/kyc/verify', { method: 'POST', body: JSON.stringify(parsed) })
+    } catch {
+      // Server unreachable: HMAC can't be recomputed. Cached CRL decides.
+      verifyOffline(parsed)
+      return
+    }
     const body: unknown = await res.json().catch(() => ({}))
     if (!res.ok) {
       setNotice(apiError(body, 'Verification failed'))
@@ -137,6 +201,37 @@ export default function Kiosk({
         body !== null && typeof body === 'object' && 'reason' in body ? body.reason : null
       setNotice(denialCopy(reason))
     }
+  }
+
+  /// Offline verify: server unreachable, so the HMAC can't be recomputed.
+  /// The cached CRL still identifies known-dead cards; anything else bounces
+  /// to the audited manual override rather than pretending to verify.
+  function verifyOffline(parsed: unknown): void {
+    const appId =
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'application_id' in parsed &&
+      typeof parsed.application_id === 'string'
+        ? parsed.application_id
+        : ''
+    const cached = crl.current
+    if (cached && appId) {
+      if (
+        cached.revoked.some((r) => r.application_id === appId) ||
+        cached.expired.some((r) => r.application_id === appId) ||
+        cached.superseded.some((r) => r.application_id === appId)
+      ) {
+        setCard(null)
+        setNotice('Offline (cached list): card is revoked, expired, or superseded — deny entry')
+        return
+      }
+    }
+    if (cached && Date.now() - Date.parse(cached.fetched_at) > 24 * 60 * 60 * 1000) {
+      setNotice('Offline — cached deny list is over 24 h old; verify against it is stale')
+      return
+    }
+    setCard(null)
+    setNotice('Offline — signature cannot be verified. Admit via manual override (audited) or wait for reconnect')
   }
 
   async function uploadSnapshot(file: File) {
@@ -248,6 +343,11 @@ export default function Kiosk({
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
         <h2 className="text-2xl font-semibold tracking-tight">Gate kiosk</h2>
+        {offline ? (
+          <span className="border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">
+            Offline{crl.current ? ' — cached deny list active' : ' — no cached deny list'}
+          </span>
+        ) : null}
         {pending.length > 0 ? (
           <span className="border border-saffron bg-saffron-mist px-2 py-0.5 text-xs font-medium text-saffron-ink">
             {pending.length} pending

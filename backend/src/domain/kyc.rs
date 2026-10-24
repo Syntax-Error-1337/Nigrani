@@ -113,6 +113,10 @@ pub struct PressCard {
     pub application_id: Uuid,
     pub full_name: String,
     pub organization: String,
+    /// Payload format: absent/0 = pre-lifecycle legacy scheme (no serial,
+    /// no expiry, MAC omits those bytes); 1 = current scheme.
+    #[serde(default)]
+    pub v: u8,
     /// Per-print serial; absent on pre-lifecycle payloads.
     #[serde(default)]
     pub serial: Option<String>,

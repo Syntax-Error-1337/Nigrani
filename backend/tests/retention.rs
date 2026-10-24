@@ -254,3 +254,51 @@ async fn purge_preview_mirrors_real_run() {
         .unwrap();
 }
 
+
+#[tokio::test]
+async fn retention_purge_deletes_s3_objects_for_erasure() {
+    // Real snapshot store against the compose/CI LocalStack.
+    std::env::set_var("S3_ENDPOINT", "http://127.0.0.1:4566");
+    std::env::set_var("S3_BUCKET", "nigrani-snapshots");
+    std::env::set_var("AWS_REGION", "us-east-1");
+    std::env::set_var("AWS_ACCESS_KEY_ID", "nigrani");
+    std::env::set_var("AWS_SECRET_ACCESS_KEY", "nigrani-secret-key");
+    let store = nigrani::infrastructure::storage::SnapshotStore::from_env().await.unwrap();
+    let mut state = test_state().await;
+    use uuid::Uuid;
+    state.snapshots = Some(store.clone());
+
+    let key = format!("erasure/{}/a.jpg", uuid::Uuid::new_v4());
+    store.put_jpeg(&key, vec![0xFFu8; 16]).await.unwrap();
+    // A crossing log referencing the key, aged past a 30-day entry_logs policy.
+    let (uid,): (Uuid,) = sqlx::query_as("SELECT id FROM users WHERE username = 'superadmin'")
+        .fetch_one(&state.pool).await.unwrap();
+    let (site_id,): (Uuid,) = sqlx::query_as(
+        "INSERT INTO sites (name, location) VALUES ('Erasure Site', 'X') ON CONFLICT (name) DO UPDATE SET location = 'X' RETURNING id")
+        .fetch_one(&state.pool).await.unwrap();
+    let (gate_id,): (Uuid,) = sqlx::query_as(
+        "INSERT INTO gates (site_id, name, direction) VALUES ($1, 'G1', 'entry')
+         ON CONFLICT (site_id, name) DO UPDATE SET direction = 'entry' RETURNING id")
+        .bind(site_id).fetch_one(&state.pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO entry_logs (gate_id, direction, method, snapshot_key, recorded_by, recorded_at)
+         VALUES ($1, 'entry', 'manual', $2, $3, now() - interval '400 days')",
+    )
+    .bind(gate_id)
+    .bind(&key)
+    .bind(uid)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO retention_policies (entity, retain_days) VALUES ('entry_logs', 30) ON CONFLICT (entity) DO UPDATE SET retain_days = 30")
+        .execute(&state.pool).await.unwrap();
+
+    let srv = TestServer::serve(state).await;
+    let sa = srv.login("superadmin").await;
+    let report: Value = srv.client.post(format!("{}/admin/retention/run", srv.base))
+        .bearer_auth(&sa).send().await.unwrap().json().await.unwrap();
+    assert!(report["snapshots_deleted"].as_i64().unwrap() >= 1, "purge must delete the dereferenced object");
+    // The object is GONE from S3 (erasure, not just dereference).
+    let gone = store.exists(&key).await.unwrap();
+    assert!(!gone, "S3 object must be deleted after purge");
+}

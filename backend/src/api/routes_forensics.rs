@@ -1270,3 +1270,33 @@ pub async fn export_pack(
         body,
     ))
 }
+
+/// Active SLA escalation: sweep every overdue, un-escalated case, stamp it,
+/// audit as the system actor (None), and fan out `escalated` events. Called
+/// by the background sweeper in main.rs; the lazy read path in list_incidents
+/// stamps on first view with the viewing operator as actor. Notification
+/// consumers should subscribe to the hub's `escalated` incident events.
+pub async fn escalate_overdue(
+    pool: &sqlx::PgPool,
+    hub: &super::events::EventHub,
+) -> usize {
+    let due: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        "UPDATE incidents SET escalated_at = now()
+         WHERE escalated_at IS NULL AND sla_due_at < now()
+           AND status IN ('open', 'investigating')
+         RETURNING id, site_id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    for (id, site_id) in &due {
+        super::routes_audit::record(pool, None, "incident.escalated", "incident", Some(*id), serde_json::json!({"by": "sla_sweeper"})).await;
+        hub.publish(&super::events::HubEvent::Incident {
+            at: chrono::Utc::now(),
+            site_id: *site_id,
+            incident_id: *id,
+            action: "escalated".to_owned(),
+        });
+    }
+    due.len()
+}

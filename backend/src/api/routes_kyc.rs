@@ -570,7 +570,26 @@ pub async fn export_crl(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
 ) -> AppResult<impl IntoResponse> {
-    require_permission(&state, &user, "kyc:review").await?;
+    // Reviewers export the CRL normally; gate operators may fetch it to
+    // keep an offline deny list at the kiosk (see Kiosk offline mode).
+    let granted = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+            SELECT 1 FROM users u
+            JOIN roles r ON r.id = u.role_id
+            JOIN role_permissions rp ON rp.role_id = r.id
+            JOIN permissions p ON p.id = rp.permission_id
+            WHERE u.id = $1 AND p.name IN ('kyc:review', 'entries:write')
+        )",
+    )
+    .bind(user.id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    if !granted {
+        return Err(AppError::Forbidden(
+            "kyc:review or entries:write required".to_owned(),
+        ));
+    }
     let revoked: Vec<(Uuid, Option<String>, Ts)> = sqlx::query_as(
         "SELECT id, card_serial, card_revoked_at FROM kyc_applications
          WHERE card_revoked_at IS NOT NULL ORDER BY id",
@@ -814,6 +833,7 @@ fn sign_card(secret: &[u8], row: &KycRow) -> PressCard {
         application_id: row.id,
         full_name: row.full_name.clone(),
         organization: row.organization.clone(),
+        v: 1,
         serial: Some(serial),
         expires_at: Some(expires_at),
         issued_at,
@@ -840,11 +860,13 @@ pub(crate) fn verify_card(secret: &[u8], card: &PressCard) -> bool {
     mac.update(card.application_id.as_bytes());
     mac.update(card.full_name.as_bytes());
     mac.update(card.organization.as_bytes());
-    mac.update(card.serial.as_deref().unwrap_or("").as_bytes());
-    // Absent serial/expiry (pre-lifecycle payloads) contribute empty/epoch
-    // nigranis — the extra bytes guarantee old signatures no longer recompute
-    // (they read as forged in the new format; documented trade, no versioning).
-    mac.update(card.expires_at.map(|t| t.timestamp()).unwrap_or(0).to_be_bytes().as_ref());
+    // v0 payloads (serial AND expiry absent) are pre-lifecycle cards signed
+    // with the legacy recipe; anything carrying a serial verifies as v1.
+    let legacy = card.serial.is_none() && card.expires_at.is_none() && card.v == 0;
+    if !legacy {
+        mac.update(card.serial.as_deref().unwrap_or("").as_bytes());
+        mac.update(card.expires_at.map(|t| t.timestamp()).unwrap_or(0).to_be_bytes().as_ref());
+    }
     mac.update(card.issued_at.timestamp().to_be_bytes().as_ref());
     let expected = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .encode(mac.finalize().into_bytes());

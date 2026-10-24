@@ -85,6 +85,12 @@ impl TestServer {
 
     pub(crate) async fn spawn_with_ns(rate_ns: String) -> Self {
         let state = test_state_with_ns(rate_ns).await;
+        Self::serve(state).await
+    }
+
+    /// Spawn an HTTP server around an already-built state (variants that
+    /// need a real snapshot store inject it into the state first).
+    pub(crate) async fn serve(state: nigrani::api::state::AppState) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let app = nigrani::api::router(state);
