@@ -26,9 +26,9 @@ use self::routes_retention::{export_site, list_policies, preview_purge, run_purg
 use self::routes_users::{change_password, create_user, set_active, unlock_user};
 use self::routes_auth::{list_assignable, list_users, login, logout, logout_all, me, refresh, revoke_access};
 use self::routes_forensics::{
-    add_incident_link, assign_incident, create_incident, enroll_embedding, get_surge,
-    list_incident_links, list_incidents, search_embeddings, set_surge, site_heatmap,
-    site_trends, transition_incident,
+    add_incident_link, assign_incident, create_incident, enroll_embedding, export_pack,
+    get_surge, list_incident_links, list_incidents, merge_incident, search_embeddings, set_surge,
+    site_heatmap, site_trends, transition_incident,
 };
 use self::routes_gate::{collect_snapshots, download_snapshot, gate_log, record_event, share_snapshot, upload_snapshot};
 use self::routes_kyc::{
@@ -102,6 +102,8 @@ pub fn router(state: AppState) -> Router {
         .route("/sites/:site_id/incidents", post(create_incident).get(list_incidents))
         .route("/forensics/search", post(search_embeddings))
         .route("/sites/:site_id/incidents/:iid/status", post(transition_incident))
+        .route("/sites/:site_id/incidents/:iid/merge", post(merge_incident))
+        .route("/sites/:site_id/incidents/:iid/pack", get(export_pack))
         .route("/sites/:site_id/incidents/:iid/assign", post(assign_incident))
         .route(
             "/sites/:site_id/incidents/:iid/links",

@@ -474,3 +474,159 @@ async fn incident_list_filters_by_status_and_assignee() {
     assert_eq!(res.status(), 400);
 }
 
+
+/// SLA: new cases get a 72h due stamp; an overdue open case escalates
+/// lazily on the first list read (once), audited and fanned out.
+#[tokio::test]
+async fn sla_escalation_lazily_marks_overdue() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let site: Value = srv.client.post(format!("{}/sites", srv.base)).bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("SLA {}", uuid::Uuid::new_v4()) })).send().await.unwrap().json().await.unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let inc: Value = srv.client.post(format!("{}/sites/{site_id}/incidents", srv.base)).bearer_auth(&superadmin)
+        .json(&json!({ "title": "SLA case" })).send().await.unwrap().json().await.unwrap();
+    let iid = inc["id"].as_str().unwrap().to_owned();
+    // Fresh case: stamped, not overdue.
+    assert!(inc["sla_due_at"].as_str().is_some());
+    assert_eq!(inc["overdue"], false);
+
+    // Backdate the SLA past due.
+    let state = test_state().await;
+    sqlx::query("UPDATE incidents SET sla_due_at = now() - interval '1 hour' WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(&iid).unwrap())
+        .execute(&state.pool).await.unwrap();
+
+    let list: Value = srv.client.get(format!("{}/sites/{site_id}/incidents", srv.base))
+        .bearer_auth(&superadmin).send().await.unwrap().json().await.unwrap();
+    let row = list.as_array().unwrap().iter().find(|r| r["id"] == inc["id"]).unwrap();
+    assert_eq!(row["overdue"], true);
+    assert!(row["escalated_at"].as_str().is_some(), "escalated on first read");
+
+    // Idempotent: second read keeps the same stamp, no duplicate escalation.
+    let list2: Value = srv.client.get(format!("{}/sites/{site_id}/incidents", srv.base))
+        .bearer_auth(&superadmin).send().await.unwrap().json().await.unwrap();
+    let row2 = list2.as_array().unwrap().iter().find(|r| r["id"] == inc["id"]).unwrap();
+    assert_eq!(row2["escalated_at"], row["escalated_at"]);
+
+    // Audit chain records the escalation.
+    let audit: Value = srv.client.get(format!("{}/audit?limit=200", srv.base))
+        .bearer_auth(&superadmin).send().await.unwrap().json().await.unwrap();
+    assert!(audit.as_array().unwrap().iter().any(|a| a["action"] == "incident.escalated" && a["entity_id"] == inc["id"]));
+}
+
+/// Merge moves evidence links, closes and tombstones the absorbed case;
+/// merged cases refuse mutations; chains and cross-site merges refused.
+#[tokio::test]
+async fn merge_moves_links_and_readonly_tombstones() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let mk = |n: String| n;
+    let _ = mk(String::new());
+
+    async fn mk_site(srv: &TestServer, superadmin: &str, name: String) -> String {
+        let s: Value = srv.client.post(format!("{}/sites", srv.base)).bearer_auth(superadmin)
+            .json(&json!({ "name": name })).send().await.unwrap().json().await.unwrap();
+        s["id"].as_str().unwrap().to_owned()
+    }
+    async fn mk_inc(srv: &TestServer, superadmin: &str, site: &str, title: &str) -> String {
+        let v: Value = srv.client.post(format!("{}/sites/{site}/incidents", srv.base)).bearer_auth(superadmin)
+            .json(&json!({ "title": title })).send().await.unwrap().json().await.unwrap();
+        v["id"].as_str().unwrap().to_owned()
+    }
+    let site = mk_site(&srv, &superadmin, format!("Merge {}", uuid::Uuid::new_v4())).await;
+    let other = mk_site(&srv, &superadmin, format!("Else {}", uuid::Uuid::new_v4())).await;
+    let survivor = mk_inc(&srv, &superadmin, &site, "Survivor").await;
+    let absorbed = mk_inc(&srv, &superadmin, &site, "Absorbed").await;
+    let foreign = mk_inc(&srv, &superadmin, &other, "Foreign").await;
+    let merged_early = mk_inc(&srv, &superadmin, &site, "Already merged").await;
+
+    // Evidence on the absorbed case.
+    let link: Value = srv.client.post(format!("{}/sites/{site}/incidents/{absorbed}/links", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "kind": "note", "note": "saw it happen" }))
+        .send().await.unwrap().json().await.unwrap();
+    let link_id = link["id"].as_str().unwrap().to_owned();
+
+    // Refusals first.
+    let res = srv.client.post(format!("{}/sites/{site}/incidents/{absorbed}/merge", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "into": absorbed })).send().await.unwrap();
+    assert_eq!(res.status(), 400, "self-merge");
+    let res = srv.client.post(format!("{}/sites/{site}/incidents/{absorbed}/merge", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "into": foreign })).send().await.unwrap();
+    assert_eq!(res.status(), 404, "cross-site target invisible");
+    // Merge the helper case first, then prove chains are refused.
+    let res = srv.client.post(format!("{}/sites/{site}/incidents/{merged_early}/merge", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "into": survivor })).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+    let res = srv.client.post(format!("{}/sites/{site}/incidents/{absorbed}/merge", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "into": merged_early })).send().await.unwrap();
+    assert_eq!(res.status(), 409, "merge into a merged case refused");
+
+    // Real merge.
+    let res = srv.client.post(format!("{}/sites/{site}/incidents/{absorbed}/merge", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "into": survivor })).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+    let merged = res.json::<Value>().await.unwrap();
+    assert_eq!(merged["merged_into"], survivor.as_str());
+    assert_eq!(merged["status"], "closed");
+
+    // Links moved to the survivor.
+    let links: Value = srv.client.get(format!("{}/sites/{site}/incidents/{survivor}/links", srv.base))
+        .bearer_auth(&superadmin).send().await.unwrap().json().await.unwrap();
+    assert!(links.as_array().unwrap().iter().any(|l| l["id"] == link_id.as_str()), "link moved");
+
+    // Absorbed case refuses mutations.
+    let res = srv.client.post(format!("{}/sites/{site}/incidents/{absorbed}/status", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "status": "investigating" })).send().await.unwrap();
+    assert_eq!(res.status(), 409);
+    let res = srv.client.post(format!("{}/sites/{site}/incidents/{absorbed}/links", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "kind": "note", "note": "x" })).send().await.unwrap();
+    assert_eq!(res.status(), 409);
+    let res = srv.client.post(format!("{}/sites/{site}/incidents/{absorbed}/merge", srv.base))
+        .bearer_auth(&superadmin).json(&json!({ "into": survivor })).send().await.unwrap();
+    assert_eq!(res.status(), 409);
+}
+
+/// Courtroom pack: case + resolved evidence + audit slice with chain verdict.
+#[tokio::test]
+async fn courtroom_pack_carries_resolved_evidence() {
+    let srv = TestServer::spawn().await;
+    let superadmin = srv.login("superadmin").await;
+    let site: Value = srv.client.post(format!("{}/sites", srv.base)).bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Pack {}", uuid::Uuid::new_v4()) })).send().await.unwrap().json().await.unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let inc: Value = srv.client.post(format!("{}/sites/{site_id}/incidents", srv.base)).bearer_auth(&superadmin)
+        .json(&json!({ "title": "Pack case" })).send().await.unwrap().json().await.unwrap();
+    let iid = inc["id"].as_str().unwrap().to_owned();
+
+    // A real crossing + note link.
+    let gate: Value = srv.client.post(format!("{}/sites/{site_id}/gates", srv.base)).bearer_auth(&superadmin)
+        .json(&json!({ "name": "G" })).send().await.unwrap().json().await.unwrap();
+    let gid = gate["id"].as_str().unwrap().to_owned();
+    let log: Value = srv.client.post(format!("{}/sites/{site_id}/gates/{gid}/events", srv.base)).bearer_auth(&superadmin)
+        .json(&json!({ "direction": "entry", "method": "manual" })).send().await.unwrap().json().await.unwrap();
+    srv.client.post(format!("{}/sites/{site_id}/incidents/{iid}/links", srv.base)).bearer_auth(&superadmin)
+        .json(&json!({ "kind": "entry", "ref_id": log["id"] })).send().await.unwrap();
+    srv.client.post(format!("{}/sites/{site_id}/incidents/{iid}/links", srv.base)).bearer_auth(&superadmin)
+        .json(&json!({ "kind": "note", "note": "witness statement" })).send().await.unwrap();
+
+    let res = srv.client.get(format!("{}/sites/{site_id}/incidents/{iid}/pack", srv.base))
+        .bearer_auth(&superadmin).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(res.headers().get("content-disposition").map(|v| v.to_str().unwrap().contains("attachment")).unwrap_or(false));
+    let pack = res.json::<Value>().await.unwrap();
+    assert_eq!(pack["incident"]["id"], iid.as_str());
+    let evidence = pack["evidence"].as_array().unwrap();
+    assert_eq!(evidence.len(), 2);
+    assert!(evidence.iter().any(|e| e["kind"] == "entry" && e["entry"]["id"] == log["id"]), "crossing resolved");
+    assert!(evidence.iter().any(|e| e["kind"] == "note" && e["note"] == "witness statement"));
+    assert_eq!(pack["audit_verdict"]["ok"], true);
+    assert!(pack["audit"].as_array().unwrap().iter().any(|a| a["action"] == "incident.created"));
+    assert!(pack["exported_at"].as_str().is_some());
+
+    // Permission: gate operator lacks incidents:write.
+    let gate_tok = srv.login("gate").await;
+    let res = srv.client.get(format!("{}/sites/{site_id}/incidents/{iid}/pack", srv.base))
+        .bearer_auth(&gate_tok).send().await.unwrap();
+    assert_eq!(res.status(), 403);
+}

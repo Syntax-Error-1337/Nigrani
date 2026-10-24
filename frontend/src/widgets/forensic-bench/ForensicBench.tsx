@@ -21,18 +21,22 @@ interface IncidentLink {
   added_at: string
 }
 
- interface Incident {
-   id: string
-   site_id: string | null
-   title: string
-   description: string
-   suspect_application_id: string | null
+interface Incident {
+  id: string
+  site_id: string | null
+  title: string
+  description: string
+  suspect_application_id: string | null
   status: IncidentStatus
   assigned_to: string | null
   resolved_at: string | null
-   created_by: string
-   created_at: string
- }
+  sla_due_at: string | null
+  escalated_at: string | null
+  merged_into: string | null
+  overdue: boolean
+  created_by: string
+  created_at: string
+}
 
 interface GateHeat {
   gate_id: string
@@ -74,6 +78,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
   const [linkKind, setLinkKind] = useState<Record<string, string>>({})
   const [linkRef, setLinkRef] = useState<Record<string, string>>({})
   const [linkNote, setLinkNote] = useState<Record<string, string>>({})
+  const [mergeInto, setMergeInto] = useState<Record<string, string>>({})
   const [statusTab, setStatusTab] = useState<'all' | IncidentStatus>('all')
   const [mineOnly, setMineOnly] = useState(false)
   const [roster, setRoster] = useState<{ id: string; username: string; role: string }[] | null>(null)
@@ -246,6 +251,35 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
   }
 
 
+  async function mergeCase(id: string, into: string) {
+    setOk(null); setNotice(null)
+    if (!into) return
+    const res = await apiFetch(`/sites/${siteId}/incidents/${id}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ into }),
+    })
+    if (!res.ok) {
+      setNotice(apiError(await res.json().catch(() => ({})), 'Merge refused'))
+      return
+    }
+    setOk('Case merged')
+    void loadIncidents()
+  }
+
+  async function exportPack(id: string) {
+    const res = await apiFetch(`/sites/${siteId}/incidents/${id}/pack`)
+    if (!res.ok) {
+      setNotice(apiError(await res.json().catch(() => ({})), 'Pack export refused'))
+      return
+    }
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `case-pack-${id.slice(0, 8)}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   return (
     <section className="mt-8">
       <h2 className="text-2xl font-semibold tracking-tight">Forensic bench</h2>
@@ -332,10 +366,14 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
               <li key={i.id} className="py-2 text-sm">
                 <span className="font-semibold">{i.title}</span>{' '}
                 <span className="border-slate-200 border bg-white px-1 text-[11px] font-medium">{i.status}</span>
+                {i.overdue ? <span className="border bg-white px-1 text-[11px] font-medium text-deny">SLA breached</span> : null}
+                {i.escalated_at ? <span className="border border-slate-200 bg-white px-1 text-[11px] font-medium text-deny">escalated</span> : null}
+                {i.merged_into ? <span className="border border-slate-200 bg-white px-1 font-ledger text-[11px] text-neutral-500">merged → {i.merged_into.slice(0, 8)}</span> : null}
+                {i.sla_due_at && !i.merged_into ? <span className="font-ledger text-[11px] text-neutral-500">SLA {new Date(i.sla_due_at).toLocaleDateString()}</span> : null}
                 {i.assigned_to ? <span className="font-ledger text-xs"> → {i.assigned_to.slice(0, 8)}</span> : null}
                 {i.description ? <span className="text-neutral-500"> — {i.description}</span> : null}
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {(NEXT[i.status] ?? []).map((s) => (
+                  {i.merged_into ? null : (NEXT[i.status] ?? []).map((s) => (
                     <button key={s} onClick={() => transition(i.id, s)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
                       → {s}
                     </button>
@@ -343,7 +381,31 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                   <button onClick={() => loadLinks(i.id)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
                     Links ({(links[i.id] ?? []).length})
                   </button>
+                  <button onClick={() => exportPack(i.id)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
+                    Export pack
+                  </button>
                 </div>
+                {i.merged_into ? null : (
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <select
+                      aria-label={`Merge ${i.title} into`}
+                      className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"
+                      value={mergeInto[i.id] ?? ''}
+                      onChange={(e) => setMergeInto((p) => ({ ...p, [i.id]: e.target.value }))}
+                    >
+                      <option value="">merge into…</option>
+                      {(incidents ?? []).filter((o) => o.id !== i.id && !o.merged_into).map((o) => (
+                        <option key={o.id} value={o.id}>{o.title} ({o.status})</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => mergeCase(i.id, mergeInto[i.id] ?? '')}
+                      className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400"
+                    >
+                      Merge
+                    </button>
+                  </div>
+                )}
                 <div className="mt-1 flex flex-wrap gap-1">
                   <select
                     className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"

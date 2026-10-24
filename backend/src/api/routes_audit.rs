@@ -111,6 +111,8 @@ fn chain_hash(
 }
 
 /// Verify the hash chain front-to-back. Reports the first bad seq, if any.
+/// Full chain walk (also the pack's verdict source — one implementation so
+/// writer and verifier can never drift).
 pub async fn verify_chain(pool: &sqlx::PgPool) -> AppResult<(bool, i64, Option<i64>)> {
     let rows: Vec<AuditRowFull> = sqlx::query_as(
         "SELECT seq, at, actor, action, entity, entity_id, detail, prev_hash, hash
@@ -138,7 +140,7 @@ pub async fn verify_chain(pool: &sqlx::PgPool) -> AppResult<(bool, i64, Option<i
 
 /// Raw `audit_log` row (without chain hashes); converted via [`AuditRow::into_entry`].
 #[derive(Debug, sqlx::FromRow)]
-struct AuditRow {
+pub(crate) struct AuditRow {
     seq: i64,
     at: DateTime<Utc>,
     actor: Option<Uuid>,
@@ -149,7 +151,7 @@ struct AuditRow {
 }
 
 impl AuditRow {
-    fn into_entry(self) -> AuditEntry {
+    pub(crate) fn into_entry(self) -> AuditEntry {
         AuditEntry {
             seq: self.seq,
             at: self.at,

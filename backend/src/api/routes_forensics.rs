@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::auth::{require_permission, AuthUser};
+use super::routes_audit::AuditRow;
 use super::state::AppState;
 use crate::core::{AppError, AppResult};
 
@@ -94,6 +95,14 @@ pub struct Incident {
     pub status: IncidentStatus,
     pub assigned_to: Option<Uuid>,
     pub resolved_at: Option<DateTime<Utc>>,
+    /// SLA deadline (created + 72h; NULL for pre-policy rows).
+    pub sla_due_at: Option<DateTime<Utc>>,
+    /// Stamped the first time a read observes the SLA broken.
+    pub escalated_at: Option<DateTime<Utc>>,
+    /// Set on the absorbed side of a merge; merged cases are read-only.
+    pub merged_into: Option<Uuid>,
+    /// Computed: SLA broken and not yet resolved/closed.
+    pub overdue: bool,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
 }
@@ -109,12 +118,21 @@ struct IncidentRow {
     status: String,
     assigned_to: Option<Uuid>,
     resolved_at: Option<DateTime<Utc>>,
+    sla_due_at: Option<DateTime<Utc>>,
+    escalated_at: Option<DateTime<Utc>>,
+    merged_into: Option<Uuid>,
     created_by: Uuid,
     created_at: DateTime<Utc>,
 }
 
+/// The canonical incidents select list (keep in sync with the table).
+const INCIDENT_COLS: &str = "id, site_id, title, description, suspect_application_id, \
+    status, assigned_to, resolved_at, sla_due_at, escalated_at, merged_into, created_by, created_at";
+
 impl IncidentRow {
     fn into_incident(self) -> Option<Incident> {
+        let overdue = matches!(self.status.as_str(), "open" | "investigating")
+            && self.sla_due_at.is_some_and(|due| due < chrono::Utc::now());
         Some(Incident {
             id: self.id,
             site_id: self.site_id,
@@ -124,6 +142,10 @@ impl IncidentRow {
             status: IncidentStatus::parse(&self.status)?,
             assigned_to: self.assigned_to,
             resolved_at: self.resolved_at,
+            sla_due_at: self.sla_due_at,
+            escalated_at: self.escalated_at,
+            merged_into: self.merged_into,
+            overdue,
             created_by: self.created_by,
             created_at: self.created_at,
         })
@@ -324,10 +346,10 @@ pub async fn create_incident(
         }
     }
     let row: IncidentRow = sqlx::query_as(
-        "INSERT INTO incidents (site_id, title, description, suspect_application_id, created_by)
-         VALUES ($1, $2, $3, $4, $5)
+        "INSERT INTO incidents (site_id, title, description, suspect_application_id, created_by, sla_due_at)
+         VALUES ($1, $2, $3, $4, $5, now() + interval '72 hours')
          RETURNING id, site_id, title, description, suspect_application_id,
-            status, assigned_to, resolved_at, created_by, created_at",
+            status, assigned_to, resolved_at, sla_due_at, escalated_at, merged_into, created_by, created_at",
     )
         .bind(site_id)
         .bind(body.title.trim())
@@ -391,7 +413,7 @@ pub async fn list_incidents(
     };
     let rows: Vec<IncidentRow> = sqlx::query_as(
         "SELECT id, site_id, title, description, suspect_application_id,
-            status, assigned_to, resolved_at, created_by, created_at
+            status, assigned_to, resolved_at, sla_due_at, escalated_at, merged_into, created_by, created_at
          FROM incidents WHERE site_id = $1
            AND ($2::text IS NULL OR status = $2)
            AND ($3::uuid IS NULL OR assigned_to = $3)
@@ -405,7 +427,41 @@ pub async fn list_incidents(
         .fetch_all(&state.pool)
         .await
         .map_err(AppError::Db)?;
-    Ok(Json(rows.into_iter().filter_map(IncidentRow::into_incident).collect()))
+    let mut incidents: Vec<Incident> = rows.into_iter().filter_map(IncidentRow::into_incident).collect();
+    // Lazy escalation: the first read that sees an overdue, un-escalated
+    // case stamps it (no sweeper task; escalation time is honest — when
+    // someone looked). Read-only viewers may trigger it.
+    for inc in incidents.iter_mut() {
+        if inc.overdue && inc.escalated_at.is_none() {
+            let stamped: Option<(chrono::DateTime<chrono::Utc>,)> = sqlx::query_as(
+                "UPDATE incidents SET escalated_at = now() WHERE id = $1 AND escalated_at IS NULL RETURNING escalated_at",
+            )
+            .bind(inc.id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+            if let Some((escalated_at,)) = stamped {
+                // Reflect the exact DB stamp in this response.
+                inc.escalated_at = Some(escalated_at);
+                super::routes_audit::record(
+                    &state.pool,
+                    Some(user.id),
+                    "incident.escalated",
+                    "incident",
+                    Some(inc.id),
+                    serde_json::json!({"sla_due_at": inc.sla_due_at}),
+                )
+                .await;
+                state.hub.publish(&super::events::HubEvent::Incident {
+                    at: chrono::Utc::now(),
+                    site_id,
+                    incident_id: inc.id,
+                    action: "escalated".to_owned(),
+                });
+            }
+        }
+    }
+    Ok(Json(incidents))
 }
 #[derive(Debug, Deserialize)]
 pub struct TransitionIncident {
@@ -420,7 +476,7 @@ async fn load_incident(
 ) -> AppResult<IncidentRow> {
     let row: Option<IncidentRow> = sqlx::query_as(
         "SELECT id, site_id, title, description, suspect_application_id,
-            status, assigned_to, resolved_at, created_by, created_at
+            status, assigned_to, resolved_at, sla_due_at, escalated_at, merged_into, created_by, created_at
          FROM incidents WHERE id = $1 AND site_id = $2",
     )
     .bind(iid)
@@ -448,6 +504,9 @@ pub async fn transition_incident(
     let next = IncidentStatus::parse(&body.status)
         .ok_or_else(|| AppError::BadRequest("status must be open, investigating, resolved, or closed".to_owned()))?;
     let current = into_incident_or_500(load_incident(&state.pool, site_id, iid).await?)?;
+    if current.merged_into.is_some() {
+        return Err(AppError::Conflict("case is merged and read-only".to_owned()));
+    }
     if current.status == next {
         return Ok(Json(current));
     }
@@ -464,7 +523,7 @@ pub async fn transition_incident(
             resolved_at = CASE WHEN $1 = 'resolved' THEN now() WHEN $1 = 'investigating' THEN NULL ELSE resolved_at END
          WHERE id = $2 AND site_id = $3
          RETURNING id, site_id, title, description, suspect_application_id,
-            status, assigned_to, resolved_at, created_by, created_at",
+            status, assigned_to, resolved_at, sla_due_at, escalated_at, merged_into, created_by, created_at",
     )
     .bind(next.as_str())
     .bind(iid)
@@ -505,7 +564,10 @@ pub async fn assign_incident(
     Json(body): Json<AssignIncident>,
 ) -> AppResult<Json<Incident>> {
     require_permission(&state, &user, "incidents:write").await?;
-    load_incident(&state.pool, site_id, iid).await?;
+    let current = into_incident_or_500(load_incident(&state.pool, site_id, iid).await?)?;
+    if current.merged_into.is_some() {
+        return Err(AppError::Conflict("case is merged and read-only".to_owned()));
+    }
     let target: Option<(Uuid, bool)> =
         sqlx::query_as("SELECT id, active FROM users WHERE id = $1")
             .bind(body.user_id)
@@ -539,7 +601,7 @@ pub async fn assign_incident(
     let row: IncidentRow = sqlx::query_as(
         "UPDATE incidents SET assigned_to = $1 WHERE id = $2 AND site_id = $3
          RETURNING id, site_id, title, description, suspect_application_id,
-            status, assigned_to, resolved_at, created_by, created_at",
+            status, assigned_to, resolved_at, sla_due_at, escalated_at, merged_into, created_by, created_at",
     )
     .bind(target_id)
     .bind(iid)
@@ -621,7 +683,10 @@ pub async fn add_incident_link(
     Json(body): Json<AddIncidentLink>,
 ) -> AppResult<Json<IncidentLink>> {
     require_permission(&state, &user, "incidents:write").await?;
-    load_incident(&state.pool, site_id, iid).await?;
+    let current = into_incident_or_500(load_incident(&state.pool, site_id, iid).await?)?;
+    if current.merged_into.is_some() {
+        return Err(AppError::Conflict("case is merged and read-only".to_owned()));
+    }
     if !valid_link_kind(&body.kind) {
         return Err(AppError::BadRequest(
             "kind must be entry, embedding, snapshot, or note".to_owned(),
@@ -973,4 +1038,235 @@ pub async fn check_surge(
             threshold: i64::from(threshold),
         });
     }
+}
+
+// --- Case merging + courtroom export pack ---
+
+#[derive(Debug, Deserialize)]
+pub struct MergeIncident {
+    pub into: Uuid,
+}
+
+/// Merge case `iid` into `into`: its evidence links move to the survivor,
+/// the absorbed case is closed and marked `merged_into` (read-only after).
+/// Same-site, no chains, no self-merge.
+pub async fn merge_incident(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((site_id, iid)): Path<(Uuid, Uuid)>,
+    Json(body): Json<MergeIncident>,
+) -> AppResult<Json<Incident>> {
+    require_permission(&state, &user, "incidents:write").await?;
+    if iid == body.into {
+        return Err(AppError::BadRequest("cannot merge a case into itself".to_owned()));
+    }
+    let absorbed = into_incident_or_500(load_incident(&state.pool, site_id, iid).await?)?;
+    if absorbed.merged_into.is_some() {
+        return Err(AppError::Conflict("case is already merged".to_owned()));
+    }
+    // Survivor must be a live case of the SAME site and not itself merged
+    // (merge chains would make audit attribution ambiguous).
+    let survivor: Option<IncidentRow> = sqlx::query_as(&format!(
+        "SELECT {INCIDENT_COLS} FROM incidents WHERE id = $1 AND site_id = $2"
+    ))
+    .bind(body.into)
+    .bind(site_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let survivor = into_incident_or_500(survivor.ok_or_else(|| AppError::NotFound("target case not found at this site".to_owned()))?)?;
+    if survivor.merged_into.is_some() {
+        return Err(AppError::Conflict("target case is already merged".to_owned()));
+    }
+    // Move the evidence, then tombstone the absorbed case atomically.
+    let moved = sqlx::query("UPDATE incident_links SET incident_id = $1 WHERE incident_id = $2")
+        .bind(body.into)
+        .bind(iid)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?
+        .rows_affected();
+    let row: IncidentRow = sqlx::query_as(&format!(
+        "UPDATE incidents SET status = 'closed', merged_into = $1
+         WHERE id = $2 AND site_id = $3
+         RETURNING {INCIDENT_COLS}"
+    ))
+    .bind(body.into)
+    .bind(iid)
+    .bind(site_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let incident = into_incident_or_500(row)?;
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "incident.merged",
+        "incident",
+        Some(iid),
+        serde_json::json!({"into": body.into, "links_moved": moved}),
+    )
+    .await;
+    state.hub.publish(&super::events::HubEvent::Incident {
+        at: chrono::Utc::now(),
+        site_id,
+        incident_id: iid,
+        action: "merged".to_owned(),
+    });
+    Ok(Json(incident))
+}
+
+/// Joined embedding row: (id, captured_at, vector as float4[]).
+type EmbeddingRow = (Uuid, Option<DateTime<Utc>>, Option<Vec<f32>>);
+
+/// One resolved evidence item for the courtroom pack.
+#[derive(Debug, Serialize)]
+pub struct PackEvidence {
+    pub link_id: Uuid,
+    pub kind: String,
+    pub note: String,
+    pub added_by: Uuid,
+    pub added_at: DateTime<Utc>,
+    /// kind=entry: the full crossing row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry: Option<serde_json::Value>,
+    /// kind=embedding: vector id, capture time, and the 512-d vector itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<serde_json::Value>,
+    /// kind=snapshot: the storage key (file lives in S3 backups).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_key: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CourtroomPack {
+    pub incident: Incident,
+    pub evidence: Vec<PackEvidence>,
+    /// Site-scoped audit slice (chain-verified below) for the court record.
+    pub audit: serde_json::Value,
+    pub audit_verdict: serde_json::Value,
+    pub exported_at: DateTime<Utc>,
+    pub exported_by: Uuid,
+}
+
+/// Courtroom export: the case, its evidence RESOLVED to actual rows, the
+/// site's audit slice, and the hash-chain verdict — one self-contained JSON.
+pub async fn export_pack(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path((site_id, iid)): Path<(Uuid, Uuid)>,
+) -> AppResult<impl axum::response::IntoResponse> {
+    require_permission(&state, &user, "incidents:write").await?;
+    let incident = into_incident_or_500(load_incident(&state.pool, site_id, iid).await?)?;
+    let link_rows: Vec<IncidentLinkRow> = sqlx::query_as(
+        "SELECT id, incident_id, kind, ref_id, note, added_by, added_at
+         FROM incident_links WHERE incident_id = $1 ORDER BY added_at",
+    )
+    .bind(iid)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let mut evidence = Vec::new();
+    for link in link_rows {
+        let entry = if link.kind == "entry" {
+            let parsed = Uuid::parse_str(&link.ref_id).ok();
+            match parsed {
+                Some(id) => {
+                    let row: Option<(serde_json::Value,)> = sqlx::query_as(
+                        "SELECT to_jsonb(l) - 'snapshot_key' FROM entry_logs l WHERE id = $1",
+                    )
+                    .bind(id)
+                    .fetch_optional(&state.pool)
+                    .await
+                    .map_err(AppError::Db)?;
+                    row.map(|r| r.0)
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let embedding = if link.kind == "embedding" {
+            let parsed = Uuid::parse_str(&link.ref_id).ok();
+            match parsed {
+                Some(id) => {
+                    let row: Option<EmbeddingRow> = sqlx::query_as(
+                        "SELECT id, captured_at, embedding::float4[] FROM face_embeddings WHERE id = $1",
+                    )
+                    .bind(id)
+                    .fetch_optional(&state.pool)
+                    .await
+                    .map_err(AppError::Db)?;
+                    row.map(|(id, captured_at, vector)| serde_json::json!({
+                        "id": id,
+                        "captured_at": captured_at,
+                        "vector": vector.map(|v| serde_json::json!(v)),
+                    }))
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let snapshot_key = (link.kind == "snapshot").then(|| link.ref_id.clone());
+        evidence.push(PackEvidence {
+            link_id: link.id,
+            kind: link.kind.clone(),
+            note: link.note.clone(),
+            added_by: link.added_by,
+            added_at: link.added_at,
+            entry,
+            embedding,
+            snapshot_key,
+        });
+    }
+    // Site audit slice (newest first, capped) + chain verdict.
+    let audit_rows: Vec<AuditRow> = sqlx::query_as(
+        "SELECT seq, at, actor, action, entity, entity_id, detail
+         FROM audit_log
+         WHERE entity_id = $1
+            OR entity_id IN (SELECT l.id FROM entry_logs l JOIN gates g ON g.id = l.gate_id WHERE g.site_id = $2)
+            OR entity_id IN (SELECT id FROM incidents WHERE site_id = $2)
+         ORDER BY seq DESC LIMIT 500",
+    )
+    .bind(iid)
+    .bind(site_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let audit = serde_json::Value::Array(
+        audit_rows.into_iter().map(|r| serde_json::to_value(r.into_entry()).unwrap_or_default()).collect(),
+    );
+    let (ok, checked, first_bad) = super::routes_audit::verify_chain(&state.pool).await?;
+    let verdict = serde_json::json!({ "ok": ok, "checked": checked, "first_bad": first_bad });
+    let pack = CourtroomPack {
+        incident,
+        evidence,
+        audit,
+        audit_verdict: verdict,
+        exported_at: chrono::Utc::now(),
+        exported_by: user.id,
+    };
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "incident.pack_exported",
+        "incident",
+        Some(iid),
+        serde_json::json!({}),
+    )
+    .await;
+    let body = serde_json::to_string(&pack)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("pack serialize failed: {e}")))?;
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                "attachment; filename=\"case-pack.json\"",
+            ),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        body,
+    ))
 }

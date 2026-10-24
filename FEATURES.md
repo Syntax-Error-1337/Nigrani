@@ -90,9 +90,12 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 |---|---------|--------|
 | 7.1 | File cases per site (`POST /sites/:sid/incidents`); list with status/assignee filters | ✅ |
 | 7.2 | **Enforced workflow** — `open → investigating → resolved → closed` (+ reopen); illegal jumps `409` | ✅ |
-| 7.3 | Assignment to users holding `incidents:write` (`400` otherwise) | ✅ |
-| 7.4 | **Evidence links** — `entry | embedding | snapshot | note` attached to a case; entry links must cite a real crossing at that site | ✅ |
-| 7.5 | Incident events fan out live to all consoles | ✅ |
+| 7.3 | **SLA timers/escalation** — `sla_due_at` = created + 72h; breached open/investigating cases report `overdue` and escalate lazily on first read (stamped once, audited, `escalated` event) | ✅ |
+| 7.4 | **Case merging** — `POST .../incidents/:iid/merge {into}`: links move, absorbed case closes as `merged_into` and refuses mutations; same-site only, no chains | ✅ |
+| 7.5 | **Courtroom export pack** — `GET .../incidents/:iid/pack`: case + evidence resolved to real rows (crossings, 512-d vectors, snapshot keys, notes) + site audit slice + chain verdict, one JSON download | ✅ |
+| 7.6 | Assignment to users holding `incidents:write` (`400` otherwise) | ✅ |
+| 7.7 | **Evidence links** — `entry | embedding | snapshot | note` attached to a case; entry links must cite a real crossing at that site | ✅ |
+| 7.8 | Incident events fan out live to all consoles | ✅ |
 
 ## 8. Accountability & tamper-evidence
 
@@ -146,5 +149,4 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 
 ## Recorded-but-unbuilt requirements (◐ above)
 
-SLA timers/escalation, case merging, courtroom packs · fuzzy/photo-hash
-duplicate matching.
+Fuzzy/photo-hash duplicate matching.

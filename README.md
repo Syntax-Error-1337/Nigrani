@@ -110,7 +110,15 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
   cosine-ranked matches `{id, distance}`
 - `GET/POST /sites/:site_id/incidents` → file/list cases
 - `POST .../incidents/:iid/status` `{status}` → workflow
-  open→investigating→resolved→closed (+ reopen); illegal jumps `409`
+- `POST .../incidents/:iid/merge` `{into}` → same-site case merge: evidence
+  links move to the survivor, absorbed case closes as `merged_into`
+  (read-only after; chains and self-merges refused)
+- `GET .../incidents/:iid/pack` → courtroom export: self-contained JSON with
+  the case, evidence resolved to real rows (crossing rows, 512-d vectors,
+  snapshot keys, notes), the site's audit slice, and the hash-chain verdict
+- SLA: new cases carry `sla_due_at` (created + 72h); an open/investigating
+  case past due reports `overdue: true` and escalates lazily — the first
+  list read stamps `escalated_at`, audits, and fans out `escalated`
 - `POST .../incidents/:iid/assign` `{user_id}` → assignee must hold
   `incidents:write` (`400` otherwise)
 - `POST/GET .../incidents/:iid/links` `{kind: entry|embedding|snapshot|note,
@@ -224,7 +232,12 @@ aws --endpoint-url http://127.0.0.1:4566 s3 sync \
   (migration 0019); a dedicated Redis tier is not used. The `/events` WS
   upgrade path enforces the same allowlist; long-lived sockets past a
   revocation close on their next client action
-- SLA timers/escalation, case merging, courtroom export packs
+- SLA timers/escalation, case merging, courtroom export packs — all shipped
+  (see incidents section); SLA is a 72h constant, escalation is lazy
+  (stamped by the first read that sees a breached case, audited + fanned
+  out); merging is same-site, no chains, evidence links move; packs are
+  self-contained JSON (case + resolved evidence + site audit slice +
+  chain verdict)
 - Fuzzy duplicate matching, photo-hash duplicates, partial UNIQUE index
 
 ## Deployment & CI
