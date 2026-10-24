@@ -79,16 +79,32 @@ pub struct KycApplication {
     /// re-vetting means a fresh application.
     #[serde(default)]
     pub card_revoked_at: Option<DateTime<Utc>>,
+    /// Current per-print serial (None = pre-lifecycle row, minted on first print).
+    #[serde(default)]
+    pub card_serial: Option<String>,
+    /// 90-day validity horizon (None = pre-lifecycle row).
+    #[serde(default)]
+    pub card_expires_at: Option<DateTime<Utc>>,
+    /// Physical cards produced; reissue bumps it and rotates the serial.
+    #[serde(default)]
+    pub card_print_count: i32,
 }
 
 /// Cryptographically signed press-card payload encoded into the QR code.
-/// HMAC-SHA256 over `{application_id, full_name, organization, issued_at}`
-/// with the server JWT secret; gates verify offline-free via re-check.
+/// HMAC-SHA256 over `{application_id, full_name, organization, serial,
+/// expires_at, issued_at}` with the server JWT secret; gates verify
+/// offline-free via re-check.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PressCard {
     pub application_id: Uuid,
     pub full_name: String,
     pub organization: String,
+    /// Per-print serial; absent on pre-lifecycle payloads.
+    #[serde(default)]
+    pub serial: Option<String>,
+    /// Validity horizon; absent on pre-lifecycle payloads.
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
     pub issued_at: DateTime<Utc>,
     pub signature: String,
 }

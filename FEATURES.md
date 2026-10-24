@@ -26,7 +26,7 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 | 1.9 | Rate limiting on auth + public KYC (per-instance counters) | Brute-force and spam throttling | ✅ |
 | 1.10 | Cluster-wide rate-limit quota | Limits hold across replicas | ◐ (out-of-scope note) |
 | 1.11 | Access-token allowlist (instant single-token revocation) | Kill one stolen access token mid-TTL | ◐ (15-min TTL is the mitigation) |
-| 1.12 | Card expiry TTL + re-issuance flow, per-print card serials, offline CRL | Credential lifecycle beyond revocation | ◐ (out-of-scope note) |
+| 1.12 | Card expiry TTL + re-issuance flow, per-print card serials, offline CRL (plain-JSON export; revocation evidence covered by the hash-chained audit) | Credential lifecycle beyond revocation | ✅ |
 
 ## 2. Site & gate topology (the physical layout being controlled)
 
@@ -50,7 +50,8 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 | 3.5 | Approve/reject with decision immutability (`409` on re-decide); rejections require an actionable note | ✅ |
 | 3.6 | **HMAC-signed press cards** + scannable **QR PNG** issued per approval | ✅ |
 | 3.7 | **Card revocation** — approved-only, idempotent, no un-revoke; a revoked card scans as `revoked` at every gate instantly | ✅ |
-| 3.8 | Gate-side verification `POST /kyc/verify` → `{valid, reason ∈ ok|bad_signature|revoked|not_approved}` | ✅ |
+| 3.8 | Gate-side verification `POST /kyc/verify` → `{valid, reason ∈ ok|bad_signature|revoked|not_approved|expired|superseded}` | ✅ |
+| 3.9 | **Card lifecycle** — first print lazily mints serial `SG-<app-hex>-<print#>` + 90-day expiry (concurrent prints share one serial); `POST /kyc/applications/:id/reissue` rotates the serial + refreshes expiry and archives the old serial (scans of it answer `superseded`); `GET /kyc/crl` exports revoked/expired/superseded as a downloadable JSON attachment; review desk shows serial/print count/expiry + reissue button, kiosk maps the new deny reasons | ✅ |
 
 ## 4. Gate screening & crossing control
 
@@ -120,8 +121,8 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 |---|---------|--------|
 | 10.1 | `docker compose` stack (pgvector DB + LocalStack S3 + API); split-process dev mode | ✅ |
 | 10.2 | **Demo reset** — truncate + reseed, refused in `APP_ENV=production`, truthful truncate report | ✅ |
-| 10.3 | Migrations 0001–0016 (schema, forensics, retention, fingerprints, lockout, retirement, audit-actor, revocation, gate duty) | ✅ |
-| 10.4 | **41 integration tests** in an isolated `nigrani_test` DB (`TEST_DATABASE_URL`) with cold-start serialization; clippy `-D warnings`; `tsc -b` + `oxlint` | ✅ |
+| 10.3 | Migrations 0001–0017 (schema, forensics, retention, fingerprints, lockout, retirement, audit-actor, revocation, gate duty, card lifecycle) | ✅ |
+| 10.4 | **46 integration tests** in an isolated `nigrani_test` DB (`TEST_DATABASE_URL`) with cold-start serialization; clippy `-D warnings`; `tsc -b` + `oxlint` | ✅ |
 | 10.5 | Production hardening: `APP_ENV=production` blocks default seeding; `JWT_SECRET` ≥ 32 chars | ✅ |
 | 10.6 | Kubernetes manifests, TLS termination, CI pipelines | ◐ (out-of-scope note) |
 
@@ -145,7 +146,6 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 
 ## Recorded-but-unbuilt requirements (◐ above)
 
-Card expiry/re-issuance, per-print serials, offline CRLs · cluster rate-limit
-quota · access-token allowlist · K8s/TLS/CI · SLA timers/escalation, case
-merging, courtroom packs · fuzzy/photo-hash duplicate matching · occupancy
-trends beyond 24h and surge alerting.
+Cluster rate-limit quota · access-token allowlist · K8s/TLS/CI · SLA
+timers/escalation, case merging, courtroom packs · fuzzy/photo-hash duplicate
+matching · occupancy trends beyond 24h and surge alerting.

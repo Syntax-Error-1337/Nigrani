@@ -15,6 +15,9 @@ export interface KycApplication {
   decision_note: string
   prior_decisions: number
   card_revoked_at: string | null
+  card_serial: string | null
+  card_expires_at: string | null
+  card_print_count: number
 }
 
 export type { PressCard } from '@/shared/lib/press-card'

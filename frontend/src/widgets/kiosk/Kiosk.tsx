@@ -17,6 +17,8 @@ function apiError(body: unknown, fallback: string): string {
 function denialCopy(reason: unknown): string {
   if (reason === 'revoked') return 'Card revoked — redirect holder to the press desk'
   if (reason === 'not_approved') return 'Application not approved — redirect to accreditation'
+  if (reason === 'expired') return 'Card expired — redirect holder to the press desk for reissue'
+  if (reason === 'superseded') return 'Card superseded by a newer print — deny entry'
   return 'Card signature invalid — deny entry'
 }
 
@@ -25,6 +27,8 @@ function denialCopy(reason: unknown): string {
 function recordDenialCopy(serverMessage: string): string | null {
   if (serverMessage.includes('press card revoked')) return denialCopy('revoked')
   if (serverMessage.includes('not approved')) return denialCopy('not_approved')
+  if (serverMessage.includes('press card expired')) return denialCopy('expired')
+  if (serverMessage.includes('press card superseded')) return denialCopy('superseded')
   if (serverMessage.includes('failed verification')) return denialCopy('bad_signature')
   return null
 }

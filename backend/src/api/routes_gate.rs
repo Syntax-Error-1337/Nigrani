@@ -162,6 +162,8 @@ pub async fn record_event(
                 let msg = match reason {
                     "revoked" => "press card revoked",
                     "not_approved" => "press card application not approved",
+                    "expired" => "press card expired",
+                    "superseded" => "press card superseded",
                     _ => "press card failed verification",
                 };
                 return Err(AppError::Forbidden(msg.to_owned()));

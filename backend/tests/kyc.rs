@@ -70,6 +70,9 @@ async fn kyc_approve_press_card_verify_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let card: Value = res.json().await.unwrap();
+    // Cards now carry the per-print serial + 90-day expiry (lazily minted).
+    assert!(card["serial"].as_str().unwrap().starts_with("SG-"), "serial: {card}");
+    assert!(card["expires_at"].is_string());
 
     let res = srv
         .client
@@ -684,5 +687,298 @@ async fn rejection_requires_actionable_note() {
         .await
         .unwrap();
     assert_eq!(res.status(), 200);
+}
+
+// --- card lifecycle (0017): expiry, serials, reissue, CRL ---
+
+/// Submit + approve an application; returns its id.
+async fn approve_application(srv: &TestServer, verifier: &str, name: &str) -> String {
+    let app: Value = srv
+        .client
+        .post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({
+            "full_name": name,
+            "document_type": "press_id",
+            "document_number": format!("LC-{}", uuid::Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = app["id"].as_str().unwrap().to_owned();
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{id}/decide", srv.base))
+        .bearer_auth(verifier)
+        .json(&json!({ "decision": "approved" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200, "approve {name}");
+    id
+}
+
+async fn card(srv: &TestServer, verifier: &str, id: &str) -> Value {
+    srv.client
+        .get(format!("{}/kyc/applications/{id}/press-card", srv.base))
+        .bearer_auth(verifier)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+async fn scan(srv: &TestServer, gate: &str, card: &Value) -> Value {
+    srv.client
+        .post(format!("{}/kyc/verify", srv.base))
+        .bearer_auth(gate)
+        .json(card)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+fn find_entry<'a>(list: &'a Value, id: &str) -> Option<&'a Value> {
+    list.as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["application_id"] == id)
+}
+
+#[tokio::test]
+async fn card_lifecycle_reissue_rotates_serial_and_supersedes_old() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let gate = srv.login("gate").await;
+    let id = approve_application(&srv, &verifier, "Rotating Rita").await;
+
+    // First print lazily mints serial + 90-day expiry.
+    let card1 = card(&srv, &verifier, &id).await;
+    let serial1 = card1["serial"].as_str().unwrap();
+    assert!(serial1.starts_with("SG-") && serial1.ends_with("-1"), "serial {serial1}");
+    assert!(card1["expires_at"].is_string());
+    assert_eq!(scan(&srv, &gate, &card1).await["reason"], "ok");
+
+    // Reissue bumps print count, rotates serial, refreshes expiry.
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{id}/reissue", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let reissued: Value = res.json().await.unwrap();
+    assert_eq!(reissued["card_print_count"], 2);
+    let serial2 = reissued["card_serial"].as_str().unwrap();
+    assert!(serial2.ends_with("-2") && serial2 != serial1, "rotated {serial2}");
+
+    let card2 = card(&srv, &verifier, &id).await;
+    assert_eq!(card2["serial"], reissued["card_serial"]);
+
+    // Old card scans superseded; new card ok.
+    let verdict = scan(&srv, &gate, &card1).await;
+    assert_eq!(verdict["valid"], false);
+    assert_eq!(verdict["reason"], "superseded");
+    let verdict = scan(&srv, &gate, &card2).await;
+    assert_eq!(verdict["valid"], true);
+    assert_eq!(verdict["reason"], "ok");
+}
+
+#[tokio::test]
+async fn card_lifecycle_expired_card_scan_reports_expired() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let gate = srv.login("gate").await;
+    let id = approve_application(&srv, &verifier, "Expiring Earl").await;
+    let card1 = card(&srv, &verifier, &id).await;
+    assert_eq!(scan(&srv, &gate, &card1).await["reason"], "ok");
+
+    // Plant a past expiry directly on the row.
+    let state = test_state().await;
+    sqlx::query("UPDATE kyc_applications SET card_expires_at = now() - interval '1 day' WHERE id = $1")
+        .bind(id.parse::<uuid::Uuid>().unwrap())
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let verdict = scan(&srv, &gate, &card1).await;
+    assert_eq!(verdict["valid"], false);
+    assert_eq!(verdict["reason"], "expired");
+}
+
+#[tokio::test]
+async fn card_lifecycle_crl_lists_revoked_expired_superseded() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let gate = srv.login("gate").await;
+
+    // Revoked fixture: approve, print, revoke.
+    let revoked_id = approve_application(&srv, &verifier, "Revoked Ray").await;
+    let revoked_card = card(&srv, &verifier, &revoked_id).await;
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{revoked_id}/revoke-card", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    // Expired fixture: approve, print, backdate expiry via SQL.
+    let expired_id = approve_application(&srv, &verifier, "Expired Eve").await;
+    let expired_card = card(&srv, &verifier, &expired_id).await;
+    let state = test_state().await;
+    sqlx::query("UPDATE kyc_applications SET card_expires_at = now() - interval '1 day' WHERE id = $1")
+        .bind(expired_id.parse::<uuid::Uuid>().unwrap())
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    // Superseded fixture: approve, print, reissue.
+    let superseded_id = approve_application(&srv, &verifier, "Superseded Sue").await;
+    let old_card = card(&srv, &verifier, &superseded_id).await;
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{superseded_id}/reissue", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    let res = srv
+        .client
+        .get(format!("{}/kyc/crl", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let disposition = res.headers().get("content-disposition").unwrap().to_str().unwrap();
+    assert!(disposition.starts_with("attachment; filename=\"crl-"), "disposition {disposition}");
+    let crl: Value = res.json().await.unwrap();
+    assert!(crl["generated_at"].is_string());
+    let revoked = find_entry(&crl["revoked"], &revoked_id).expect("revoked entry");
+    assert_eq!(revoked["serial"], revoked_card["serial"]);
+    assert!(revoked["since"].is_string());
+    let expired = find_entry(&crl["expired"], &expired_id).expect("expired entry");
+    assert_eq!(expired["serial"], expired_card["serial"]);
+    let superseded = find_entry(&crl["superseded"], &superseded_id).expect("superseded entry");
+    assert_eq!(superseded["serial"], old_card["serial"]);
+    // Gate role cannot export the CRL.
+    let res = srv
+        .client
+        .get(format!("{}/kyc/crl", srv.base))
+        .bearer_auth(&gate)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 403);
+}
+
+#[tokio::test]
+async fn card_lifecycle_reissue_refuses_nonapproved_revoked_missing() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let gate = srv.login("gate").await;
+    let reissue = |id: String, token: String| {
+        let client = &srv.client;
+        let base = srv.base.clone();
+        async move {
+            client
+                .post(format!("{base}/kyc/applications/{id}/reissue"))
+                .bearer_auth(token)
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+
+    // Pending and rejected applications carry no card.
+    let submit = |name: &str| {
+        let client = &srv.client;
+        let base = srv.base.clone();
+        let name = name.to_owned();
+        async move {
+            client
+                .post(format!("{base}/kyc/applications"))
+                .json(&json!({
+                    "full_name": name,
+                    "document_type": "press_id",
+                    "document_number": format!("RI-{}", uuid::Uuid::new_v4()),
+                }))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let pending = submit("Pending Pam").await;
+    assert_eq!(
+        reissue(pending["id"].as_str().unwrap().to_owned(), verifier.clone()).await,
+        409
+    );
+    let rejected = submit("Rejected Rob").await;
+    srv.client
+        .post(format!("{}/kyc/applications/{}/decide", srv.base, rejected["id"].as_str().unwrap()))
+        .bearer_auth(&verifier)
+        .json(&json!({ "decision": "rejected", "note": "no press pass" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        reissue(rejected["id"].as_str().unwrap().to_owned(), verifier.clone()).await,
+        409
+    );
+
+    // Revoked approved application: no fresh credentials.
+    let revoked_id = approve_application(&srv, &verifier, "Revoked Ron").await;
+    let res = srv
+        .client
+        .post(format!("{}/kyc/applications/{revoked_id}/revoke-card", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert_eq!(reissue(revoked_id.clone(), verifier.clone()).await, 409);
+
+    // Unknown id → 404; gate role lacks kyc:review → 403.
+    assert_eq!(reissue(uuid::Uuid::new_v4().to_string(), verifier.clone()).await, 404);
+    let live_id = approve_application(&srv, &verifier, "Live Lena").await;
+    assert_eq!(reissue(live_id, gate).await, 403);
+}
+
+#[tokio::test]
+async fn card_lifecycle_concurrent_first_prints_share_serial() {
+    let srv = TestServer::spawn().await;
+    let verifier = srv.login("verifier").await;
+    let id = approve_application(&srv, &verifier, "Racing Rae").await;
+    let print = || {
+        let client = &srv.client;
+        let url = format!("{}/kyc/applications/{id}/press-card", srv.base);
+        let token = verifier.clone();
+        async move { client.get(url).bearer_auth(token).send().await.unwrap().json::<Value>().await.unwrap() }
+    };
+    let (a, b) = tokio::join!(print(), print());
+    assert_eq!(a["serial"], b["serial"], "concurrent prints reuse one serial");
+    let state = test_state().await;
+    let count: i32 = sqlx::query_scalar("SELECT card_print_count FROM kyc_applications WHERE id = $1")
+        .bind(id.parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "minted exactly once");
 }
 

@@ -59,6 +59,10 @@ struct KycRow {
     decision_note: String,
     doc_fingerprint: String,
     card_revoked_at: Option<Ts>,
+    card_serial: Option<String>,
+    card_expires_at: Option<Ts>,
+    card_print_count: i32,
+    // prior_serials is SQL-only (reissue/CRL); not mapped here.
 }
 
 fn to_application(
@@ -93,12 +97,15 @@ fn to_application(
         decision_note: row.decision_note,
         prior_decisions: 0,
         card_revoked_at: row.card_revoked_at,
+        card_serial: row.card_serial,
+        card_expires_at: row.card_expires_at,
+        card_print_count: row.card_print_count,
     }))
 }
 
 const ROW_COLS: &str = "id, full_name, organization, document_type, document_number, \
     photo_url, status, submitted_at, decided_at, decided_by, decision_note, doc_fingerprint,
-    card_revoked_at";
+    card_revoked_at, card_serial, card_expires_at, card_print_count, prior_serials";
 
 /// Canonical blind-index input: `document_type|NUMBER`, trimmed + uppercased.
 /// PAN/Aadhaar are case-insensitive identifiers; `pan| abc123` == `pan|ABC123`.
@@ -339,8 +346,128 @@ pub async fn revoke_card(
     Ok(Json(app))
 }
 
+/// Re-issue an approved press card: bumps print_count, rotates the serial,
+/// refreshes the 90-day expiry. The outgoing serial moves to `prior_serials`
+/// so scans of it answer `superseded` and the CRL lists it; single-statement
+/// mint keeps concurrent reissues race-safe.
+pub async fn reissue_card(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(application_id): Path<Uuid>,
+) -> AppResult<Json<KycApplication>> {
+    require_permission(&state, &user, "kyc:review").await?;
+    let expires_at = Utc::now() + chrono::Duration::days(CARD_VALIDITY_DAYS);
+    let row: Option<KycRow> = sqlx::query_as(&format!(
+        "UPDATE kyc_applications SET
+            card_print_count = card_print_count + 1,
+            card_serial = {NEXT_SERIAL_SQL},
+            card_expires_at = $2,
+            prior_serials = CASE WHEN card_serial IS NULL THEN prior_serials
+                                 ELSE array_append(prior_serials, card_serial) END
+         WHERE id = $1 AND status = 'approved' AND card_revoked_at IS NULL
+         RETURNING {ROW_COLS}"
+    ))
+    .bind(application_id)
+    .bind(expires_at)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some(row) = row else {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM kyc_applications WHERE id = $1)")
+            .bind(application_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+        return Err(if exists {
+            AppError::Conflict("reissue requires an approved, unrevoked application".to_owned())
+        } else {
+            AppError::NotFound("application not found".to_owned())
+        });
+    };
+    let crypto = crypto(&state)?;
+    let fp = row.doc_fingerprint.clone();
+    let mut app = to_application(&crypto, row)?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?;
+    app.prior_decisions = prior_count(&state.pool, &fp, app.id).await?;
+    super::routes_audit::record(
+        &state.pool, Some(user.id), "kyc.card_reissued", "kyc_application", Some(app.id),
+        serde_json::json!({"serial": app.card_serial}),
+    )
+    .await;
+    Ok(Json(app))
+}
+
+/// Offline CRL export: every credential class a gate must refuse — revoked,
+/// expired, superseded serials — as a downloadable JSON attachment for
+/// checkpoints without live DB access.
+pub async fn export_crl(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> AppResult<impl IntoResponse> {
+    require_permission(&state, &user, "kyc:review").await?;
+    let revoked: Vec<(Uuid, Option<String>, Ts)> = sqlx::query_as(
+        "SELECT id, card_serial, card_revoked_at FROM kyc_applications
+         WHERE card_revoked_at IS NOT NULL ORDER BY id",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let expired: Vec<(Uuid, Option<String>, Ts)> = sqlx::query_as(
+        "SELECT id, card_serial, card_expires_at FROM kyc_applications
+         WHERE status = 'approved' AND card_revoked_at IS NULL
+           AND card_expires_at IS NOT NULL AND card_expires_at < now()
+         ORDER BY id",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    // One row per prior serial; empty arrays unnest to nothing.
+    let superseded: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, s FROM kyc_applications, unnest(prior_serials) AS s ORDER BY id, s",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let entry = |(id, serial, since): &(Uuid, Option<String>, Ts)| {
+        serde_json::json!({ "application_id": id, "serial": serial, "since": since })
+    };
+    let body = serde_json::json!({
+        "generated_at": Utc::now(),
+        "revoked": revoked.iter().map(entry).collect::<Vec<_>>(),
+        "expired": expired.iter().map(entry).collect::<Vec<_>>(),
+        "superseded": superseded
+            .iter()
+            .map(|(id, serial)| serde_json::json!({ "application_id": id, "serial": serial }))
+            .collect::<Vec<_>>(),
+    });
+    super::routes_audit::record(
+        &state.pool, Some(user.id), "kyc.crl_exported", "kyc_application", None,
+        serde_json::json!({}),
+    )
+    .await;
+    let filename = format!("crl-{}.json", Utc::now().format("%Y-%m-%d"));
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json".to_owned()),
+            (axum::http::header::CACHE_CONTROL, "no-store".to_owned()),
+            (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{filename}\"")),
+        ],
+        body.to_string(),
+    ))
+}
+
+/// Row projection for scan-time liveness.
+#[derive(Debug, sqlx::FromRow)]
+struct CardLiveness {
+    status: String,
+    card_revoked_at: Option<Ts>,
+    card_serial: Option<String>,
+    card_expires_at: Option<Ts>,
+}
+
 /// Card liveness for scan-time enforcement: HMAC must verify AND the
-/// application row must still approve AND not be revoked.
+/// application row must still approve AND not be revoked AND not be expired
+/// AND carry the current serial.
 pub async fn card_status(
     pool: &sqlx::PgPool,
     secret: &[u8],
@@ -349,8 +476,9 @@ pub async fn card_status(
     if !verify_card(secret, card) {
         return ("bad_signature", false);
     }
-    let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-        "SELECT status, card_revoked_at FROM kyc_applications WHERE id = $1",
+    let row: Option<CardLiveness> = sqlx::query_as(
+        "SELECT status, card_revoked_at, card_serial, card_expires_at
+         FROM kyc_applications WHERE id = $1",
     )
     .bind(card.application_id)
     .fetch_optional(pool)
@@ -358,9 +486,23 @@ pub async fn card_status(
     .unwrap_or(None);
     match row {
         None => ("not_approved", false),
-        Some((status, _)) if status != KycStatus::Approved.as_str() => ("not_approved", false),
-        Some((_, Some(_))) => ("revoked", false),
-        Some((_, None)) => ("ok", true),
+        Some(live) if live.status != KycStatus::Approved.as_str() => ("not_approved", false),
+        Some(live) if live.card_revoked_at.is_some() => ("revoked", false),
+        Some(live) => {
+            if live.card_expires_at.is_some_and(|at| at < Utc::now()) {
+                return ("expired", false);
+            }
+            // Superseded: presented serial is not the row's current one. A
+            // pre-lifecycle row (NULL serial) only accepts serial-less cards.
+            let superseded = match live.card_serial {
+                None => card.serial.is_some(),
+                Some(current) => card.serial.as_deref() != Some(current.as_str()),
+            };
+            if superseded {
+                return ("superseded", false);
+            }
+            ("ok", true)
+        }
     }
 }
 
@@ -384,16 +526,13 @@ pub async fn press_card(
     if row.status != KycStatus::Approved.as_str() {
         return Err(AppError::Conflict("press card requires an approved application".to_owned()));
     }
-    let card = approved_card(&state, application_id, row)?;
+    let card = approved_card(&state, row).await?;
     Ok(Json(card))
 }
 
-/// Shared loader: approved row → signed payload (JSON and PNG agree byte-wise).
-fn approved_card(
-    state: &AppState,
-    application_id: Uuid,
-    row: KycRow,
-) -> AppResult<PressCard> {
+/// Shared loader: approved row → lazily mint serial/expiry on first print →
+/// signed payload (JSON and PNG agree byte-wise).
+async fn approved_card(state: &AppState, row: KycRow) -> AppResult<PressCard> {
     if row.status != KycStatus::Approved.as_str() {
         return Err(AppError::Conflict("press card requires an approved application".to_owned()));
     }
@@ -402,8 +541,50 @@ fn approved_card(
     if row.card_revoked_at.is_some() {
         return Err(AppError::Conflict("press card revoked".to_owned()));
     }
-    let _ = application_id;
+    let row = mint_serial(&state.pool, row).await?;
     Ok(sign_card(&state.jwt_secret, &row))
+}
+
+/// Press-card validity window from issuance/reissue; scans past it are
+/// `expired` until reissued.
+const CARD_VALIDITY_DAYS: i64 = 90;
+
+/// Serial expression for the NEXT print: `SG-<8 hex of application id>-<print
+/// count>`. All UPDATE right-hand sides see the pre-update row, hence + 1 —
+/// which also makes concurrent mints serialize correctly on one row.
+const NEXT_SERIAL_SQL: &str =
+    "'SG-' || left(replace(id::text, '-', ''), 8) || '-' || (card_print_count + 1)";
+
+/// First print lazily mints serial + expiry in one guarded UPDATE; a print
+/// that loses the race re-reads and reuses the winner's serial (never two).
+async fn mint_serial(pool: &sqlx::PgPool, row: KycRow) -> AppResult<KycRow> {
+    if row.card_serial.is_some() {
+        return Ok(row);
+    }
+    let expires_at = Utc::now() + chrono::Duration::days(CARD_VALIDITY_DAYS);
+    let minted: Option<KycRow> = sqlx::query_as(&format!(
+        "UPDATE kyc_applications
+         SET card_serial = {NEXT_SERIAL_SQL}, card_expires_at = $2,
+             card_print_count = card_print_count + 1
+         WHERE id = $1 AND card_serial IS NULL
+         RETURNING {ROW_COLS}"
+    ))
+    .bind(row.id)
+    .bind(expires_at)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::Db)?;
+    match minted {
+        Some(row) => Ok(row),
+        None => {
+            sqlx::query_as(&format!("SELECT {ROW_COLS} FROM kyc_applications WHERE id = $1"))
+                .bind(row.id)
+                .fetch_optional(pool)
+                .await
+                .map_err(AppError::Db)?
+                .ok_or_else(|| AppError::NotFound("application not found".to_owned()))
+        }
+    }
 }
 
 /// QR image of the signed payload: same JSON bytes as `/press-card`,
@@ -424,7 +605,7 @@ pub async fn press_card_png(
     let Some(row) = row else {
         return Err(AppError::NotFound("application not found".to_owned()));
     };
-    let card = approved_card(&state, application_id, row)?;
+    let card = approved_card(&state, row).await?;
     let payload = serde_json::to_string(&card)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("card serialize failed: {e}")))?;
     let code = qrcode::QrCode::with_error_correction_level(
@@ -451,10 +632,15 @@ pub async fn press_card_png(
 
 fn sign_card(secret: &[u8], row: &KycRow) -> PressCard {
     let issued_at = Utc::now();
+    // Lazy mint guarantees these exist on every signed card.
+    let serial = row.card_serial.clone().expect("serial minted before signing");
+    let expires_at = row.card_expires_at.expect("expiry minted before signing");
     let mut mac = HmacSha256::new_from_slice(secret).expect("hmac accepts any key length");
     mac.update(row.id.as_bytes());
     mac.update(row.full_name.as_bytes());
     mac.update(row.organization.as_bytes());
+    mac.update(serial.as_bytes());
+    mac.update(expires_at.timestamp().to_be_bytes().as_ref());
     mac.update(issued_at.timestamp().to_be_bytes().as_ref());
     let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .encode(mac.finalize().into_bytes());
@@ -462,6 +648,8 @@ fn sign_card(secret: &[u8], row: &KycRow) -> PressCard {
         application_id: row.id,
         full_name: row.full_name.clone(),
         organization: row.organization.clone(),
+        serial: Some(serial),
+        expires_at: Some(expires_at),
         issued_at,
         signature,
     }
@@ -486,6 +674,11 @@ pub(crate) fn verify_card(secret: &[u8], card: &PressCard) -> bool {
     mac.update(card.application_id.as_bytes());
     mac.update(card.full_name.as_bytes());
     mac.update(card.organization.as_bytes());
+    mac.update(card.serial.as_deref().unwrap_or("").as_bytes());
+    // Absent serial/expiry (pre-lifecycle payloads) contribute empty/epoch
+    // nigranis — the extra bytes guarantee old signatures no longer recompute
+    // (they read as forged in the new format; documented trade, no versioning).
+    mac.update(card.expires_at.map(|t| t.timestamp()).unwrap_or(0).to_be_bytes().as_ref());
     mac.update(card.issued_at.timestamp().to_be_bytes().as_ref());
     let expected = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .encode(mac.finalize().into_bytes());

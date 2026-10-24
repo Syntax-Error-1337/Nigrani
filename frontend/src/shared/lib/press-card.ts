@@ -4,6 +4,8 @@ export interface PressCard {
   application_id: string
   full_name: string
   organization: string
+  serial: string | null
+  expires_at: string | null
   issued_at: string
   signature: string
 }

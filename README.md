@@ -3,7 +3,8 @@
 Protest-site access management: RBAC API (Rust/axum) + operations console
 (Vite/React). Phases 1–4 shipped plus hardening: provisioning, audit trail,
 retention, QR cards, demo reset, capture review, incident lifecycle +
-realtime, KYC duplicates + revocation, login lockout, topology retirement,
+realtime, KYC duplicates + revocation, card lifecycle (expiry, per-print
+serials, reissue, offline CRL), login lockout, topology retirement,
 snapshot lifecycle.
 
 Console styling follows the UX4G 2.0 "Saffron Green Navy" India theme: GoI
@@ -70,19 +71,27 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 - `GET /kyc/applications?status=&q=` (needs `kyc:review`) → reviewer queue
 - `POST /kyc/applications/:id/decide` `{decision, note?}` — decided rows
   immutable (`409` on re-decide)
-- `GET /kyc/applications/:id/press-card` → HMAC-signed card payload
+- `GET /kyc/applications/:id/press-card` → HMAC-signed card payload; the
+  first print lazily mints a per-print serial (`SG-<app-hex>-<print#>`) and
+  a 90-day expiry (`card_print_count` grows per print)
 - `GET /kyc/applications/:id/press-card.png` → scannable QR image
+- `POST /kyc/applications/:id/reissue` (needs `kyc:review`, approved +
+  unrevoked) → rotates the serial, refreshes the 90-day expiry, archives
+  the old serial as `superseded` (audited `kyc.card_reissued`)
 - `POST /kyc/applications/:id/revoke-card` (needs `kyc:review`,
   approved-only, idempotent, no un-revoke)
 - `POST /kyc/verify` → `{valid, reason, application_id}` where reason ∈
-  `ok|bad_signature|revoked|not_approved`
+  `ok|bad_signature|revoked|not_approved|expired|superseded`
+- `GET /kyc/crl` (needs `kyc:review`) → offline CRL as a downloadable JSON
+  attachment (`{generated_at, revoked, expired, superseded}`; plain JSON —
+  revocation evidence stays covered by the hash-chained audit)
 
 ## Gate ops
 
 - `POST /sites/:site_id/gates/:gate_id/events` (needs `entries:write`) →
   screening event; `press_card` payloads HMAC-verified AND liveness-checked
-  (revoked/unapproved → `403` like forgeries); `manual` is the audited
-  operator override
+  (revoked/unapproved/expired/superseded → `403` like forgeries); `manual`
+  is the audited operator override
 - `GET /sites/:site_id/gates/:gate_id/log` → recent crossings
 - `POST /snapshots` (JPEG ≤ 5MB, needs `entries:write`) → `{key}`;
   `GET /snapshots/:key` (streams JPEG) / `/snapshots/:key/share`
@@ -149,7 +158,8 @@ Every error is `{error, request_id}` (`X-Request-ID` echo). Status guide:
   verifier, Retention (policies/purge/export + orphan console)
 - SiteCommander: sites/gates, kiosk, audit (scoped)
 - GateOperator: kiosk (card + manual + snapshot)
-- VerificationOfficer: review desk (decide, revoke, press cards)
+- VerificationOfficer: review desk (decide, revoke, reissue, press cards,
+  CRL export)
 - ForensicAnalyst: bench + heatmap + incidents
 
 ## Tests
@@ -198,7 +208,6 @@ aws --endpoint-url http://127.0.0.1:4566 s3 sync \
 
 ## Out of scope (recorded)
 
-- Card expiry TTLs (needs re-issuance flow), per-print serials, offline CRLs
 - Shared rate-limit quota across replicas (per-instance counters)
 - Access-token allowlist (15-min TTL is the mitigation)
 - Kubernetes manifests, TLS termination, CI pipelines

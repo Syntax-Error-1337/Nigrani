@@ -30,7 +30,10 @@ use self::routes_forensics::{
     list_incidents, search_embeddings, site_heatmap, transition_incident,
 };
 use self::routes_gate::{collect_snapshots, download_snapshot, gate_log, record_event, share_snapshot, upload_snapshot};
-use self::routes_kyc::{decide_kyc, list_kyc, press_card, press_card_png, revoke_card, submit_kyc, verify_press_card};
+use self::routes_kyc::{
+    decide_kyc, export_crl, list_kyc, press_card, press_card_png, reissue_card, revoke_card,
+    submit_kyc, verify_press_card,
+};
 use self::routes_sites::{
     create_gate, create_site, get_stats, list_gates, list_sites, my_duty, set_gate_archived,
     set_gate_duty, set_site_archived,
@@ -87,9 +90,11 @@ pub fn router(state: AppState) -> Router {
         .route("/kyc/applications", get(list_kyc))
         .route("/kyc/applications/:id/decide", post(decide_kyc))
         .route("/kyc/applications/:id/revoke-card", post(revoke_card))
+        .route("/kyc/applications/:id/reissue", post(reissue_card))
         .route("/kyc/applications/:id/press-card", get(press_card))
         .route("/kyc/applications/:id/press-card.png", get(press_card_png))
         .route("/kyc/verify", post(verify_press_card))
+        .route("/kyc/crl", get(export_crl))
         .route("/sites/:site_id/gates/:gate_id/events", post(record_event))
         .route("/sites/:site_id/gates/:gate_id/log", get(gate_log))
         .route("/snapshots/:key", get(download_snapshot))

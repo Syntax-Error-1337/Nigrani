@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useDebounced } from '@/shared/lib'
-import { useKycQueue, type KycApplication } from '@/entities/kyc'
+import { useKycQueue, type KycApplication, type PressCard } from '@/entities/kyc'
 import { apiFetch } from '@/shared/api'
 
 function queueError(body: unknown, fallback: string): string {
@@ -18,7 +18,13 @@ export default function ReviewDesk() {
   const [note, setNote] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | null>(null)
   const [photo, setPhoto] = useState<{ name: string; url: string } | null>(null)
-  const [card, setCard] = useState<{ name: string; payload: string; qrUrl: string } | null>(null)
+  const [card, setCard] = useState<{
+    name: string
+    payload: string
+    qrUrl: string
+    serial: string | null
+    expires: string | null
+  } | null>(null)
 
   async function decide(app: KycApplication, decision: 'approved' | 'rejected') {
     setNotice(null)
@@ -45,6 +51,31 @@ export default function ReviewDesk() {
       return
     }
     queue.refetch()
+  }
+
+  async function reissue(app: KycApplication) {
+    setNotice(null)
+    const res = await apiFetch(`/kyc/applications/${app.id}/reissue`, { method: 'POST' })
+    if (!res.ok) {
+      setNotice(queueError(await res.json().catch(() => ({})), `Could not reissue ${app.full_name}`))
+      return
+    }
+    queue.refetch()
+  }
+
+  async function downloadCrl() {
+    setNotice(null)
+    const res = await apiFetch('/kyc/crl')
+    if (!res.ok) {
+      setNotice(`CRL export refused (${res.status})`)
+      return
+    }
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `crl-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
   }
 
   async function openPhoto(app: KycApplication) {
@@ -77,14 +108,17 @@ export default function ReviewDesk() {
       return
     }
     const payload = await res.text()
+    // Issuing mints the serial/expiry server-side; refresh the queue row.
+    queue.refetch()
+    const parsed = JSON.parse(payload) as Partial<PressCard>
     const img = await apiFetch(`/kyc/applications/${app.id}/press-card.png`)
     if (!img.ok) {
       setNotice('Card payload ready, but QR image failed — use the JSON fallback')
-      setCard({ name: app.full_name, payload, qrUrl: '' })
+      setCard({ name: app.full_name, payload, qrUrl: '', serial: parsed.serial ?? null, expires: parsed.expires_at ?? null })
       return
     }
     const blob = await img.blob()
-    setCard({ name: app.full_name, payload, qrUrl: URL.createObjectURL(blob) })
+    setCard({ name: app.full_name, payload, qrUrl: URL.createObjectURL(blob), serial: parsed.serial ?? null, expires: parsed.expires_at ?? null })
   }
 
   const rows = queue.data ?? []
@@ -187,17 +221,45 @@ export default function ReviewDesk() {
                 ) : null}
                 {!app.card_revoked_at ? (
                   <button
+                    onClick={() => reissue(app)}
+                    className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400"
+                    title="Rotate the serial and refresh the 90-day validity; old prints stop scanning"
+                  >
+                    Reissue card
+                  </button>
+                ) : null}
+                {!app.card_revoked_at ? (
+                  <button
                     onClick={() => revoke(app)}
                     className="bg-deny px-3 py-1 text-xs font-medium text-white hover:bg-rose-700"
                   >
                     Revoke card
                   </button>
                 ) : null}
+                {app.card_serial && !app.card_revoked_at ? (
+                  <span className="font-ledger text-xs text-neutral-500">
+                    Serial {app.card_serial} · prints {app.card_print_count}
+                    {app.card_expires_at
+                      ? ` · valid until ${new Date(app.card_expires_at).toLocaleDateString()}`
+                      : ''}
+                  </span>
+                ) : null}
               </div>
             ) : null}
           </li>
         ))}
       </ol>
+      <div className="mt-3 flex items-baseline gap-3">
+        <button
+          onClick={downloadCrl}
+          className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400"
+        >
+          Download CRL
+        </button>
+        <span className="text-xs text-neutral-500">
+          Revoked, expired, and superseded serials — offline JSON for gate checks.
+        </span>
+      </div>
       {photo ? (
         <div className="mt-4 border border-signal bg-white p-2">
           <p className="text-base font-semibold tracking-tight">Photo — {photo.name}</p>
@@ -215,6 +277,12 @@ export default function ReviewDesk() {
           <div>
             <p className="text-base font-semibold tracking-tight">Press card — {card.name}</p>
             <p className="mt-1 font-ledger text-xs break-all">{card.payload}</p>
+            {card.serial ? (
+              <p className="mt-1 text-sm">
+                Serial {card.serial}
+                {card.expires ? ` · valid until ${new Date(card.expires).toLocaleDateString()}` : ''}
+              </p>
+            ) : null}
             <p className="mt-2 text-sm">
               Scan the QR at the gate; the JSON fallback covers damaged prints.
             </p>
