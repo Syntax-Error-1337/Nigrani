@@ -43,6 +43,17 @@ Console follows the **UX4G 2.0 "Saffron Green Navy"** GoI portal palette —
 Noto Sans (Hindi + English), GIGW 3.0 accessibility patterns: skip link,
 A−/A/A+ text-size switcher, AA contrast throughout.
 
+
+## 🇮🇳 v2 hardening
+
+Beyond phases 1–4: card format versioning (legacy cards verify again), offline
+kiosk (cached CRL deny list + outbox), active SLA sweeper, S3 erasure,
+audit-chain anchoring (`POST /audit/anchor` + `anchored_ok` verdicts), TOTP 2FA
+with per-device session revoke, biometric consent gating, site capacity caps
+(`403` at capacity), hardware ingest via service tokens (`svc_…`),
+Prometheus `/metrics`, daily CSV reports, Playwright E2E, and a kiosk
+Hindi/English toggle.
+
 ## 🚀 Quick start
 
 ```sh
@@ -293,3 +304,12 @@ aws --endpoint-url http://127.0.0.1:4566 s3 sync \
 - `.github/workflows/ci.yml`: backend job (clippy `-D warnings` +
   `cargo test` against a fresh `nigrani_test` on pgvector/LocalStack
   services) and frontend job (`tsc -b` + `oxlint`).
+
+- Snapshot object lifecycle (suggested S3 rule): expire noncurrent
+  versions after 30 days; share links are 15-min presigned so no
+  long-lived public access exists. Apply on the bucket:
+  `aws --endpoint-url http://127.0.0.1:4566 s3api put-bucket-lifecycle-configuration --bucket nigrani-snapshots --lifecycle-configuration '{"Rules":[{"ID":"prune","Status":"Enabled","Filter":{"Prefix":"gate/"},"Expiration":{"Days":365}}]}'`
+  — pick Days to match (or trail) your `entry_logs` retention policy so
+  objects outlive their referencing rows by one purge cycle.
+- Nightly backup: `scripts/backup.sh` (cron) or the `nigrani-backup`
+  CronJob in `k8s/nigrani.yaml`; restores follow the pg_dump runbook.

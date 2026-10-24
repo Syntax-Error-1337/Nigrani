@@ -139,6 +139,37 @@ Status legend: ✅ shipped.
 | 11.4 | Public press application page (no login, tricolor-branded) | ✅ |
 | 11.5 | Live indicator, KPI cards, proportional heat bars, expandable audit feed with chain verdict | ✅ |
 
+## 12. v2 backlog (proposed → shipped)
+
+Field-critical:
+
+| # | Feature | Requirement it serves | Status |
+|---|---------|----------------------|--------|
+| 12.1 | Card payload format versioning (`v` field; legacy pre-0017 cards verify again under the recovered legacy recipe, still liveness-checked) | Format changes must not strand issued cards | ✅ |
+| 12.2 | Offline kiosk mode — CRL cached at the gate (`/kyc/crl` opens to `entries:write`, 5-min refresh, 24 h staleness guard); offline scans deny known-dead cards and bounce unknowns to the audited manual override; offline banner | Gates must keep working when the network dies | ✅ |
+| 12.3 | Active SLA escalation — 5-min background sweeper stamps + fans out `escalated` events with system actor; lazy read path keeps operator attribution | Escalation can't depend on someone opening the list | ✅ |
+| 12.4 | S3 erasure proof — retention purge deletes dereferenced snapshot objects (verified by a real LocalStack test) | Erasure means the bytes are gone, not unreferenced | ✅ |
+
+Trust & compliance:
+
+| # | Feature | Status |
+|---|---------|--------|
+| 12.5 | Audit-chain external anchoring — `POST /audit/anchor` pins the head; verify reports `anchored_ok`; rewrite+re-chain attacks pass the linear walk but fail the anchor (proven by tx-scoped attack test); console "Anchor head" button | ✅ |
+| 12.6 | TOTP 2FA (RFC 6238, ±1 step, no-strike on typos) + per-device session list/revoke (session_id links refresh+access tokens; revoke kills both instantly); console SecurityPanel | ✅ |
+| 12.7 | Biometric consent — `photo_consent` on the public apply form; embedding enrollment refuses without it (409); consent stamped on embeddings | ✅ |
+| 12.8 | Site capacity caps — `capacity` per site; at-capacity ENTRY refused `403` + `capacity` hub event; exit frees room | ✅ |
+
+Scale & reach:
+
+| # | Feature | Status |
+|---|---------|--------|
+| 12.9 | Hardware ingest — hashed service tokens (`svc_…`, shown once) + machine webhook reusing kiosk internals; machine crossings carry NULL operator | ✅ |
+| 12.10 | Kiosk Hindi/English toggle (persisted; labels, denial copy, offline notices) | ✅ |
+| 12.11 | PWA manifest + SVG mark (installable console) | ✅ |
+| 12.12 | Daily report CSV (`/sites/:sid/report.csv?date=`) + backup automation (`scripts/backup.sh`, k8s CronJob) | ✅ |
+| 12.13 | Prometheus `/metrics` — status-class request counters + live gauges | ✅ |
+| 12.14 | Playwright E2E (4 console-wiring specs) + site-audit scope-denial tests | ✅ |
+
 ---
 
 ## Shipped system summary

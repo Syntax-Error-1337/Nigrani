@@ -459,9 +459,11 @@ async fn hardware_ingest_with_service_token() {
         .json(&json!({"gate_id": gid, "direction": "entry", "method": "manual"}))
         .send().await.unwrap();
     assert_eq!(r.status(), 200, "{}", r.text().await.unwrap_or_default());
+    let body: Value = r.json().await.unwrap();
     let state = test_state().await;
     let actor: Option<uuid::Uuid> = sqlx::query_scalar(
-        "SELECT recorded_by FROM entry_logs ORDER BY recorded_at DESC LIMIT 1")
+        "SELECT recorded_by FROM entry_logs WHERE id = $1")
+        .bind(body["id"].as_str().unwrap().parse::<uuid::Uuid>().unwrap())
         .fetch_one(&state.pool).await.unwrap();
     assert!(actor.is_none(), "machine crossings record no operator");
 
