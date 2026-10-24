@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { apiFetch } from './session'
-import type { PressCard } from './api'
+import { apiFetch } from '@/shared/api'
+import type { PressCard } from './press-card'
 
 /// Kiosk offline outbox: crossings that failed on network/5xx/429 wait in
 /// localStorage instead of dying. 4xx verdicts NEVER queue (validation or

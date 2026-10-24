@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { apiFetch, STORAGE_KEY, useSession } from './session'
+import { apiFetch } from '@/shared/api'
+import { STORAGE_KEY, useSession } from '@/shared/session'
 
 interface Operator {
   id: string

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import Kiosk from './Kiosk'
-import { apiFetch } from './session'
+import Kiosk from '@/widgets/kiosk'
+import { apiFetch } from '@/shared/api'
 
 interface DutyGate {
   gate_id: string

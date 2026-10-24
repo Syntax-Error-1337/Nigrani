@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
-import Dashboard from './Dashboard'
-import { useEventStream } from './events'
-import Login from './Login'
-import PressApply from './PressApply'
-import { refreshNow, useSession } from './session'
+import Dashboard from '@/pages/dashboard'
+import { useEventStream } from '@/shared/lib'
+import Login from '@/pages/login'
+import PressApply from '@/pages/press-apply'
+import { refreshNow } from '@/shared/api'
+import { useSession } from '@/shared/session'
 const queryClient = new QueryClient()
 // Network blips (API restart, laptop sleep): retry those a few times, and
 // refetch on window focus so a dropped API connection heals itself without

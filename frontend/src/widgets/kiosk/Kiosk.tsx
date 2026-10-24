@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { apiFetch } from './session'
-import { useGateLog, type PressCard } from './api'
-import { enqueueCrossing, flushOutbox, retryDelayMs, useOutbox } from './outbox'
+import { apiFetch } from '@/shared/api'
+import { useGateLog } from '@/entities/gate-log'
+import type { PressCard } from '@/entities/kyc'
+import { enqueueCrossing, flushOutbox, retryDelayMs, useOutbox } from '@/shared/lib/outbox'
 
 function apiError(body: unknown, fallback: string): string {
   if (body !== null && typeof body === 'object' && 'error' in body) {

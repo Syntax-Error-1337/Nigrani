@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useSession, type SessionUser } from './session'
+import { useSession, type SessionUser } from '@/shared/session'
 
 export default function Login() {
   const navigate = useNavigate()

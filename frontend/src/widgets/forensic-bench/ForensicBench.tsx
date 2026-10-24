@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { onIncidentEvent } from './events'
-import { apiFetch } from './session'
+import { onIncidentEvent } from '@/shared/lib'
+import { apiFetch } from '@/shared/api'
 
 interface SearchHit {
   id: string

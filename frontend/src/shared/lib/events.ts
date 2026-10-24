@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useSession } from './session'
+import { useSession } from '@/shared/session'
 
 interface HubEvent {
   kind: 'crossing' | 'kyc_decided' | 'topology' | 'incident'

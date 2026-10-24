@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { apiFetch } from './session'
+import { apiFetch } from '@/shared/api'
 
 interface AuditEntry {
   seq: number

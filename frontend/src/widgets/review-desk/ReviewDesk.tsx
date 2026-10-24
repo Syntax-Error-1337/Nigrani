@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useDebounced } from './useDebounced'
-import { useKycQueue, type KycApplication } from './api'
-import { apiFetch } from './session'
+import { useDebounced } from '@/shared/lib'
+import { useKycQueue, type KycApplication } from '@/entities/kyc'
+import { apiFetch } from '@/shared/api'
 
 function queueError(body: unknown, fallback: string): string {
   if (body !== null && typeof body === 'object' && 'error' in body) {
