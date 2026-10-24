@@ -17,7 +17,17 @@ pub static RETENTION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_ne
 // advisory lock (in-process mutexes don't span test processes).
 const SETUP_LOCK: i64 = 8_765_432_109_987;
 
+/// Test state; each call mints its own rate-limit namespace (isolated
+/// quotas). Two servers sharing ONE namespace simulate cluster replicas.
+// Compiled into every test binary; unused ones would fail -D dead-code.
+#[allow(dead_code)]
 pub(crate) async fn test_state() -> nigrani::api::state::AppState {
+    test_state_with_ns(uuid::Uuid::new_v4().to_string()).await
+}
+
+pub(crate) async fn test_state_with_ns(
+    rate_ns: String,
+) -> nigrani::api::state::AppState {
     let url = std::env::var("TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://nigrani:nigrani@127.0.0.1:5432/nigrani".into());
     let pool = nigrani::infrastructure::db::connect(&url)
@@ -47,10 +57,7 @@ pub(crate) async fn test_state() -> nigrani::api::state::AppState {
     nigrani::api::state::AppState {
         pool,
         jwt_secret: Arc::<[u8]>::from(b"test-secret".as_slice()),
-        kyc_limiter: nigrani::api::rate_limit::Limiter::kyc(),
-        login_limiter: nigrani::api::rate_limit::Limiter::auth_login(),
-        refresh_limiter: nigrani::api::rate_limit::Limiter::auth_refresh(),
-        snapshot_limiter: nigrani::api::rate_limit::Limiter::snapshot_upload(),
+        rate_ns,
         grants: nigrani::api::state::GrantCache::builder()
             .time_to_live(std::time::Duration::from_secs(60))
             .build(),
@@ -73,7 +80,11 @@ pub(crate) struct TestServer {
 
 impl TestServer {
     pub(crate) async fn spawn() -> Self {
-        let state = test_state().await;
+        Self::spawn_with_ns(uuid::Uuid::new_v4().to_string()).await
+    }
+
+    pub(crate) async fn spawn_with_ns(rate_ns: String) -> Self {
+        let state = test_state_with_ns(rate_ns).await;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let app = nigrani::api::router(state);

@@ -158,9 +158,15 @@ pub async fn set_active(
     let Some(row) = row else {
         return Err(AppError::NotFound("user not found".to_owned()));
     };
-    // Immediate session kill on deactivate.
+    // Immediate session kill on deactivate: refresh family AND allowlisted
+    // access tokens die now, not at token expiry.
     if !row.active {
         sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1")
+            .bind(row.id)
+            .execute(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+        sqlx::query("UPDATE access_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
             .bind(row.id)
             .execute(&state.pool)
             .await

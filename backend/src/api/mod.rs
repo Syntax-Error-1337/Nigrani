@@ -24,7 +24,7 @@ use self::routes_audit::{list_audit, site_audit, verify_audit};
 use self::routes_demo::reset_demo;
 use self::routes_retention::{export_site, list_policies, preview_purge, run_purge, set_policy};
 use self::routes_users::{change_password, create_user, set_active, unlock_user};
-use self::routes_auth::{list_assignable, list_users, login, logout, logout_all, me, refresh};
+use self::routes_auth::{list_assignable, list_users, login, logout, logout_all, me, refresh, revoke_access};
 use self::routes_forensics::{
     add_incident_link, assign_incident, create_incident, enroll_embedding, list_incident_links,
     list_incidents, search_embeddings, site_heatmap, transition_incident,
@@ -47,26 +47,22 @@ pub async fn health() -> &'static str {
 
 pub fn router(state: AppState) -> Router {
     use rate_limit::LimitRule;
-    // Per-IP fixed windows (quotas on AppState, isolated per test server).
+    // Per-IP fixed windows, cluster-wide via rate_counters (namespaced
+    // per instance so test servers stay isolated).
+    let state_for_limit = state.clone();
     let limited = |rule: LimitRule, route: Router<AppState>| {
         route
-            .route_layer(axum::middleware::from_fn(rate_limit::limit_by_rule))
+            .route_layer(axum::middleware::from_fn_with_state(
+                state_for_limit.clone(),
+                rate_limit::limit_by_rule,
+            ))
             .layer(axum::Extension(rule))
     };
-    let kyc_submit = limited(
-        LimitRule { limiter: state.kyc_limiter.clone(), endpoint: "kyc_submit" },
-        Router::new().route("/kyc/applications", post(submit_kyc)),
-    );
-    let auth = limited(
-        LimitRule { limiter: state.login_limiter.clone(), endpoint: "auth_login" },
-        Router::new().route("/auth/login", post(login)),
-    );
-    let refresh = limited(
-        LimitRule { limiter: state.refresh_limiter.clone(), endpoint: "auth_refresh" },
-        Router::new().route("/auth/refresh", post(refresh)),
-    );
+    let kyc_submit = limited(LimitRule::kyc(), Router::new().route("/kyc/applications", post(submit_kyc)));
+    let auth = limited(LimitRule::auth_login(), Router::new().route("/auth/login", post(login)));
+    let refresh = limited(LimitRule::auth_refresh(), Router::new().route("/auth/refresh", post(refresh)));
     let snapshots = limited(
-        LimitRule { limiter: state.snapshot_limiter.clone(), endpoint: "snapshot_upload" },
+        LimitRule::snapshot_upload(),
         Router::new().route("/snapshots", post(upload_snapshot)),
     );
     Router::new()
@@ -75,6 +71,7 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/me", get(me))
         .route("/auth/logout", post(logout))
         .route("/auth/logout/all", post(logout_all))
+        .route("/auth/revoke-access", post(revoke_access))
         .route("/users", get(list_users).post(create_user))
         .route("/users/assignable", get(list_assignable))
         .route("/users/:id/:action", post(set_active))

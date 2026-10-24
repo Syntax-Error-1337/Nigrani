@@ -13,10 +13,9 @@ pub struct AppState {
     pub jwt_secret: Arc<[u8]>,
     /// None when S3 is unreachable at boot; snapshot endpoints 503.
     pub snapshots: Option<crate::infrastructure::storage::SnapshotStore>,
-    pub kyc_limiter: super::rate_limit::Limiter,
-    pub login_limiter: super::rate_limit::Limiter,
-    pub refresh_limiter: super::rate_limit::Limiter,
-    pub snapshot_limiter: super::rate_limit::Limiter,
+    /// Rate-limit namespace: production replicas share "" (one cluster
+    /// quota); each test server gets a unique id (isolated quotas).
+    pub rate_ns: String,
     /// Role-grant cache (60s TTL). Revocation propagates within the TTL;
     /// SuperAdmin bypass never consults it.
     pub grants: GrantCache,
@@ -59,10 +58,7 @@ impl AppState {
             pool,
             jwt_secret: jwt_secret.into_bytes().into(),
             snapshots,
-            kyc_limiter: super::rate_limit::Limiter::kyc(),
-            login_limiter: super::rate_limit::Limiter::auth_login(),
-            refresh_limiter: super::rate_limit::Limiter::auth_refresh(),
-            snapshot_limiter: super::rate_limit::Limiter::snapshot_upload(),
+            rate_ns: String::new(),
             grants: GrantCache::builder().time_to_live(std::time::Duration::from_secs(60)).build(),
             crypto,
             hub: super::events::EventHub::new(),

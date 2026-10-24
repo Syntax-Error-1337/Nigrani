@@ -267,3 +267,62 @@ async fn login_lockout_triggers_and_unlocks() {
     assert_eq!(res.status(), 200);
 }
 
+
+/// Access tokens are allowlisted: self-revocation kills the token mid-TTL
+/// while sibling sessions stay valid (logged back in / other token).
+#[tokio::test]
+async fn access_token_revocation_is_instant() {
+    let srv = TestServer::spawn().await;
+    let (tok_a, tok_b) = (srv.login("superadmin").await, srv.login("superadmin").await);
+    // Both live before revocation.
+    let pre = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_a).send().await.unwrap();
+    assert_eq!(pre.status(), 200, "pre-revoke me A: {}", pre.text().await.unwrap_or_default());
+    let pre_b = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_b).send().await.unwrap();
+    assert_eq!(pre_b.status(), 200, "pre-revoke me B: {}", pre_b.text().await.unwrap_or_default());
+    // Revoke A; its retries stay idempotent-204.
+    assert_eq!(srv.client.post(format!("{}/auth/revoke-access", srv.base)).bearer_auth(&tok_a).send().await.unwrap().status(), 204);
+    assert_eq!(srv.client.post(format!("{}/auth/revoke-access", srv.base)).bearer_auth(&tok_a).send().await.unwrap().status(), 204);
+    // A is dead instantly; B is untouched.
+    let dead = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_a).send().await.unwrap();
+    assert_eq!(dead.status(), 401);
+    assert_eq!(dead.json::<Value>().await.unwrap()["error"], "token revoked");
+    let bres = srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_b).send().await.unwrap();
+    assert_eq!(bres.status(), 200, "me B: {}", bres.text().await.unwrap_or_default());
+    // A forged token (valid signature, never allowlisted) is rejected.
+    // Sign one via the test binary: reuse login then delete its row.
+    let tok_c = srv.login("superadmin").await;
+    let state = test_state_with_ns(uuid::Uuid::new_v4().to_string()).await;
+    let jti: (uuid::Uuid,) = sqlx::query_as("SELECT jti FROM access_tokens a JOIN users u ON u.id = a.user_id WHERE u.username = 'superadmin' ORDER BY a.expires_at DESC LIMIT 1")
+        .fetch_one(&state.pool).await.unwrap();
+    sqlx::query("DELETE FROM access_tokens WHERE jti = $1").bind(jti.0).execute(&state.pool).await.unwrap();
+    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_c).send().await.unwrap().status(), 401);
+}
+
+/// Logout-all kills sibling access tokens mid-TTL, not just refresh families.
+#[tokio::test]
+async fn logout_all_kills_sibling_access_tokens() {
+    let srv = TestServer::spawn().await;
+    let tok_a = srv.login("commander").await;
+    let tok_b = srv.login("commander").await;
+    assert_eq!(srv.client.post(format!("{}/auth/logout/all", srv.base)).bearer_auth(&tok_a).send().await.unwrap().status(), 200);
+    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_b).send().await.unwrap().status(), 401);
+    assert_eq!(srv.client.get(format!("{}/auth/me", srv.base)).bearer_auth(&tok_a).send().await.unwrap().status(), 401);
+}
+
+/// The quota is cluster-wide: two replicas sharing one namespace draw from
+/// the same budget — exhausting it on A trips B immediately.
+#[tokio::test]
+async fn rate_limit_quota_is_cluster_wide() {
+    let ns = uuid::Uuid::new_v4().to_string();
+    let a = TestServer::spawn_with_ns(ns.clone()).await;
+    let b = TestServer::spawn_with_ns(ns).await;
+    let body = json!({ "username": "nosuch", "password": "x" });
+    let mut tripped_on_a = false;
+    for _ in 0..25 {
+        let res = a.client.post(format!("{}/auth/login", a.base)).json(&body).send().await.unwrap();
+        if res.status() == 429 { tripped_on_a = true; break; }
+    }
+    assert!(tripped_on_a, "quota trips on replica A");
+    let res = b.client.post(format!("{}/auth/login", b.base)).json(&body).send().await.unwrap();
+    assert_eq!(res.status(), 429, "replica B shares the exhausted budget");
+}

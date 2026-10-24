@@ -35,6 +35,12 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 - `POST /auth/login` `{username, password}` → access JWT + rotating refresh
   replaying a revoked token burns the whole session family (`401 reused`)
 - `POST /auth/logout` / `/auth/logout/all` → revoke one / all sessions
+  (logout-all also kills sibling access tokens mid-TTL)
+- `POST /auth/revoke-access` → instantly kill the **presented** access token
+  (self-revocation only; idempotent). Access tokens are allowlisted: every
+  request (and the `/events` WS upgrade) requires the minted `jti` row to be
+  live, so deactivation, lockout, logout-all, and self-revocation all take
+  effect immediately — not at the 15-min expiry
 - `GET /auth/me` → own identity + `locked_until` when locked
 - `GET /users` (needs `users:read`); `POST /users` (needs `users:write`)
 - `POST /users/:id/deactivate|reactivate` (needs `users:write`, never self)
@@ -208,8 +214,22 @@ aws --endpoint-url http://127.0.0.1:4566 s3 sync \
 
 ## Out of scope (recorded)
 
-- Shared rate-limit quota across replicas (per-instance counters)
-- Access-token allowlist (15-min TTL is the mitigation)
-- Kubernetes manifests, TLS termination, CI pipelines
+- Rate-limit counters are Postgres-backed and shared across replicas
+  (migration 0019); a dedicated Redis tier is not used. The `/events` WS
+  upgrade path enforces the same allowlist; long-lived sockets past a
+  revocation close on their next client action
 - SLA timers/escalation, case merging, courtroom export packs
 - Fuzzy duplicate matching, photo-hash duplicates, partial UNIQUE index
+
+## Deployment & CI
+
+- `k8s/nigrani.yaml`: 2-replica Deployment with `/health` probes, Service,
+  cert-manager TLS Ingress (termination at the ingress controller), and a
+  sticky-session Ingress for the WS stream. Secrets come from a
+  `nigrani-secrets` Secret (`kubectl create secret generic nigrani-secrets
+  --from-literal=database-url=... --from-literal=jwt-secret=...
+  --from-literal=biometric-key=... --from-literal=aws-key-id=...
+  --from-literal=aws-secret=...`).
+- `.github/workflows/ci.yml`: backend job (clippy `-D warnings` +
+  `cargo test` against a fresh `nigrani_test` on pgvector/LocalStack
+  services) and frontend job (`tsc -b` + `oxlint`).

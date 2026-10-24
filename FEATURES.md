@@ -24,8 +24,8 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 | 1.7 | Session validation on every request — token dies as a clean `401` if its user is deleted/deactivated | Deactivation takes effect immediately, not at token expiry | ✅ |
 | 1.8 | Per-request permission checks, SuperAdmin bypass; permission-gated roster filters (`/users/assignable?perm=`) | Least-privilege assignment of duty/cases | ✅ |
 | 1.9 | Rate limiting on auth + public KYC (per-instance counters) | Brute-force and spam throttling | ✅ |
-| 1.10 | Cluster-wide rate-limit quota | Limits hold across replicas | ◐ (out-of-scope note) |
-| 1.11 | Access-token allowlist (instant single-token revocation) | Kill one stolen access token mid-TTL | ◐ (15-min TTL is the mitigation) |
+| 1.10 | Cluster-wide rate-limit quota | Limits hold across replicas | ✅ |
+| 1.11 | Access-token allowlist (instant single-token revocation) | Kill one stolen access token mid-TTL | ✅ |
 | 1.12 | Card expiry TTL + re-issuance flow, per-print card serials, offline CRL (plain-JSON export; revocation evidence covered by the hash-chained audit) | Credential lifecycle beyond revocation | ✅ |
 
 ## 2. Site & gate topology (the physical layout being controlled)
@@ -146,6 +146,5 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 
 ## Recorded-but-unbuilt requirements (◐ above)
 
-Cluster rate-limit quota · access-token allowlist · K8s/TLS/CI · SLA
-timers/escalation, case merging, courtroom packs · fuzzy/photo-hash duplicate
-matching · occupancy trends beyond 24h and surge alerting.
+SLA timers/escalation, case merging, courtroom packs · fuzzy/photo-hash
+duplicate matching · occupancy trends beyond 24h and surge alerting.

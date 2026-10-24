@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nigrani
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nigrani-api
+  namespace: nigrani
+  labels: {app: nigrani-api}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: nigrani-api}
+  template:
+    metadata:
+      labels: {app: nigrani-api}
+    spec:
+      containers:
+        - name: api
+          image: nigrani:latest
+          ports: [{containerPort: 8080}]
+          env:
+            - name: APP_ENV
+              value: production
+            - name: BIND_ADDR
+              value: 0.0.0.0:8080
+            - name: S3_ENDPOINT
+              value: http://snapshots.minio.svc:9000
+            - name: S3_BUCKET
+              value: nigrani-snapshots
+            - name: AWS_REGION
+              value: us-east-1
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: nigrani-secrets, key: database-url}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: {name: nigrani-secrets, key: jwt-secret}
+            - name: BIOMETRIC_KEY
+              valueFrom:
+                secretKeyRef: {name: nigrani-secrets, key: biometric-key}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: nigrani-secrets, key: aws-key-id}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: nigrani-secrets, key: aws-secret}
+          readinessProbe:
+            httpGet: {path: /health, port: 8080}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: 8080}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nigrani-api
+  namespace: nigrani
+spec:
+  selector: {app: nigrani-api}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nigrani-ingress
+  namespace: nigrani
+  annotations:
+    # TLS termination at the ingress controller (cert-manager issues the cert).
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [nigrani.example.gov]
+      secretName: nigrani-tls
+  rules:
+    - host: nigrani.example.gov
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nigrani-api
+                port: {number: 80}
+---
+# Rate-limit quota is Postgres-backed and shared across replicas (migration
+# 0019). /events WS connections are long-lived, so they get their own
+# sticky-session ingress for connection continuity.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nigrani-events
+  namespace: nigrani
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/affinity: cookie
+    nginx.ingress.kubernetes.io/session-cookie-name: nigrani-events
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: nigrani.example.gov
+      http:
+        paths:
+          - path: /events
+            pathType: Prefix
+            backend:
+              service:
+                name: nigrani-api
+                port: {number: 80}

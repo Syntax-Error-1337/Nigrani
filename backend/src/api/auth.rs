@@ -33,18 +33,24 @@ impl FromRequestParts<AppState> for AuthUser {
             .strip_prefix("Bearer ")
             .ok_or_else(|| AppError::Unauthorized("malformed authorization header".to_owned()))?;
         let claims = verify_access_token(&state.jwt_secret, token)?;
+        let jti = claims.jti;
         let user = claims.into_user()?;
-        // Signature is stateless; the session dies with its user row
-        // (deleted, deactivated, or wiped by a demo reset). Without this,
-        // stale tokens linger and die later as confusing 403s.
-        let alive: Option<bool> =
-            sqlx::query_scalar("SELECT active FROM users WHERE id = $1")
-                .bind(user.id)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(AppError::Db)?;
+        // Signature is stateless; validity is not. The session dies with its
+        // user row (deleted, deactivated, or wiped by a demo reset) AND with
+        // its allowlist row (self-revoked, bulk-revoked, expired). Without
+        // this, stale tokens linger and die later as confusing 403s.
+        let alive: Option<(bool, bool)> = sqlx::query_as(
+            "SELECT u.active, (a.jti IS NOT NULL AND a.revoked_at IS NULL AND a.expires_at > now())
+             FROM users u LEFT JOIN access_tokens a ON a.jti = $2 WHERE u.id = $1",
+        )
+        .bind(user.id)
+        .bind(jti)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
         match alive {
-            Some(true) => Ok(Self(user)),
+            Some((true, true)) => Ok(Self(user)),
+            Some((true, false)) => Err(AppError::Unauthorized("token revoked".to_owned())),
             _ => Err(AppError::Unauthorized("session no longer valid".to_owned())),
         }
     }

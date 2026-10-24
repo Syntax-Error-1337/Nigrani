@@ -20,6 +20,8 @@ pub struct Claims {
     pub sub: Uuid,
     pub username: String,
     pub role: String,
+    /// Allowlist id: valid only while the matching `access_tokens` row lives.
+    pub jti: Uuid,
     pub exp: usize,
     pub iat: usize,
 }
@@ -45,16 +47,19 @@ pub fn issue_access_token(
     user_id: Uuid,
     username: &str,
     role: Role,
-) -> AppResult<String> {
+) -> AppResult<(String, Uuid)> {
     let now = Utc::now();
+    let jti = Uuid::new_v4();
     let claims = Claims {
         sub: user_id,
         username: username.to_owned(),
         role: role.as_str().to_owned(),
+        jti,
         iat: now.timestamp() as usize,
         exp: (now + Duration::minutes(ACCESS_TTL_MINUTES)).timestamp() as usize,
     };
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret))
+        .map(|token| (token, jti))
         .map_err(|e| AppError::Internal(anyhow::anyhow!("token encode failed: {e}")))
 }
 

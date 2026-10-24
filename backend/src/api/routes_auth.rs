@@ -1,4 +1,8 @@
-use axum::{extract::{Query, State}, Json};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -7,7 +11,8 @@ use super::state::AppState;
 use crate::core::{AppError, AppResult};
 use crate::domain::Role;
 use crate::infrastructure::auth::{
-    hex_digest, issue_access_token, new_refresh_token, refresh_expiry, verify_password,
+    hex_digest, issue_access_token, new_refresh_token, refresh_expiry, verify_access_token,
+    verify_password,
 };
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +57,58 @@ struct DbUser {
 /// Strikes before a lock engages; lock length after the final strike.
 pub const LOCKOUT_STRIKES: i32 = 5;
 pub const LOCKOUT_MINUTES: i64 = 15;
+
+/// Access tokens are allowlisted: a JWT is valid only while its jti row
+/// is unrevoked and unexpired. Minting lists it; expiry prunes the table
+/// (bounded size, no sweeper task).
+async fn allowlist_mint(
+    pool: &sqlx::PgPool,
+    user_id: uuid::Uuid,
+    jti: uuid::Uuid,
+) -> AppResult<()> {
+    sqlx::query("DELETE FROM access_tokens WHERE expires_at < now()")
+        .execute(pool)
+        .await
+        .map_err(AppError::Db)?;
+    sqlx::query("INSERT INTO access_tokens (jti, user_id, expires_at) VALUES ($1, $2, now() + interval '15 minutes')")
+        .bind(jti)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(AppError::Db)?;
+    Ok(())
+}
+
+/// Self-revocation of one access token: only a token's holder can kill it,
+/// so this is `logout` for stolen access tokens — instant, unlike the
+/// 15-min TTL. Signature-verified WITHOUT the allowlist gate, so an
+/// already-revoked token still gets its idempotent 204 on retry.
+pub async fn revoke_access(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> AppResult<StatusCode> {
+    let raw = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or_else(|| AppError::Unauthorized("missing bearer token".to_owned()))?;
+    let claims = verify_access_token(&state.jwt_secret, raw)?;
+    sqlx::query("UPDATE access_tokens SET revoked_at = now() WHERE jti = $1 AND revoked_at IS NULL")
+        .bind(claims.jti)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    super::routes_audit::record(
+        &state.pool,
+        Some(claims.sub),
+        "auth.access_revoked",
+        "session",
+        None,
+        serde_json::json!({}),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
+}
 
 pub async fn login(
     State(state): State<AppState>,
@@ -100,9 +157,14 @@ pub async fn login(
             .execute(&state.pool)
             .await
             .map_err(AppError::Db)?;
-            // Immediate session kill (mirrors deactivate): outstanding
-            // access JWTs run to their <=15-min expiry, but rotation ends.
+            // Immediate session kill (mirrors deactivate): refresh rotation
+            // ends and allowlisted access JWTs die now.
             sqlx::query("UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
+                .bind(row.id)
+                .execute(&state.pool)
+                .await
+                .map_err(AppError::Db)?;
+            sqlx::query("UPDATE access_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
                 .bind(row.id)
                 .execute(&state.pool)
                 .await
@@ -130,7 +192,8 @@ pub async fn login(
     super::routes_audit::record(&state.pool, Some(row.id), "login.ok", "session", None, serde_json::json!({"username": body.username})).await;
     let role = Role::from_name(&row.role)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role {}", row.role)))?;
-    let access_token = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
+    let (access_token, jti) = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
+    allowlist_mint(&state.pool, row.id, jti).await?;
     let (refresh_token, stored_hash) = new_refresh_token();
     sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
         .bind(row.id)
@@ -200,7 +263,8 @@ pub async fn refresh(
     }
     let role = Role::from_name(&row.role)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("unknown role {}", row.role)))?;
-    let access_token = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
+    let (access_token, jti) = issue_access_token(&state.jwt_secret, row.id, &row.username, role)?;
+    allowlist_mint(&state.pool, row.id, jti).await?;
     let (refresh_token, new_hash) = new_refresh_token();
     sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
         .bind(row.id)
@@ -243,7 +307,14 @@ pub async fn logout_all(
         .await
         .map_err(AppError::Db)?
         .rows_affected();
-    tracing::info!(user_id = %user.id, revoked = n, "all sessions revoked");
+    // Sibling access tokens die with the family (mid-TTL, not at expiry).
+    let a = sqlx::query("UPDATE access_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?
+        .rows_affected();
+    tracing::info!(user_id = %user.id, revoked = n, access_revoked = a, "all sessions revoked");
     Ok(Json(serde_json::json!({ "logged_out": true, "sessions_revoked": n })))
 }
 

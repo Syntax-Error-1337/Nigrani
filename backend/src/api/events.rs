@@ -92,6 +92,17 @@ pub async fn events_ws(
     Extension(hub): Extension<EventHub>,
 ) -> AppResult<impl IntoResponse> {
     let claims = verify_access_token(&state.jwt_secret, &query.token)?;
+    // Same allowlist rule as bearer routes: a revoked/killed token cannot
+    // open (or keep) a side channel past its TTL.
+    let alive: Option<bool> =
+        sqlx::query_scalar("SELECT revoked_at IS NULL AND expires_at > now() FROM access_tokens WHERE jti = $1")
+            .bind(claims.jti)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?;
+    if alive != Some(true) {
+        return Err(AppError::Unauthorized("token revoked".to_owned()));
+    }
     let role = Role::from_name(&claims.role)
         .ok_or_else(|| AppError::Unauthorized("unknown role".to_owned()))?;
     tracing::info!(user = %claims.username, role = %role, "event stream subscribed");

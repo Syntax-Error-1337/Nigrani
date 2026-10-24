@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: nigrani
+          POSTGRES_PASSWORD: nigrani
+          POSTGRES_DB: nigrani
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nigrani -d nigrani"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      s3:
+        image: localstack/localstack:3.6.0
+        env:
+          SERVICES: s3
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: nigrani
+          AWS_SECRET_ACCESS_KEY: nigrani-secret-key
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -sf http://localhost:4566/_localstack/health | grep -q s3"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # Endpoints fail closed without a key; tests exercising crypto need one.
+      BIOMETRIC_KEY: c3VwZXJzZWNyZXQtc3VwZXJzZWNyZXQtc3VwZXJzZWNyZXQtMzI=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: Isolated test database
+        run: |
+          psql postgres://nigrani:nigrani@127.0.0.1:5432/nigrani \
+            -c "CREATE DATABASE nigrani_test OWNER nigrani" \
+            -c "GRANT ALL ON DATABASE nigrani_test TO nigrani"
+      - name: Clippy
+        working-directory: backend
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgres://nigrani:nigrani@127.0.0.1:5432/nigrani_test
+        run: cargo test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - name: Typecheck
+        working-directory: frontend
+        run: npx tsc -b
+      - name: Lint
+        working-directory: frontend
+        run: npx oxlint
