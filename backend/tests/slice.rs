@@ -8,7 +8,12 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
+// Cold-start guard: 41 parallel test threads race migrations + seed on a
+// virgin DB. Serialize setup; later callers reuse the finished state.
+static DB_READY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn test_state() -> nigrani::api::state::AppState {
+    let _guard = DB_READY.lock().await;
     let url = std::env::var("TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://nigrani:nigrani@127.0.0.1:5432/nigrani".into());
     let pool = nigrani::infrastructure::db::connect(&url)
@@ -1921,6 +1926,20 @@ async fn incident_events_fan_out_and_coverage() {
             .await
             .unwrap();
     }
+    // Shared dev DB carries rows from other sessions; assert this run's
+    // purge matches the aged rows actually present (ours among them).
+    let aged_links: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM incident_links WHERE added_at < now() - interval '1 day'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    let aged_incidents: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM incidents WHERE created_at < now() - interval '1 day'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
     let report: Value = srv
         .client
         .post(format!("{}/admin/retention/run", srv.base))
@@ -1931,8 +1950,7 @@ async fn incident_events_fan_out_and_coverage() {
         .json()
         .await
         .unwrap();
-    assert_eq!(report["purged"]["incident_links"], 1);
-    assert_eq!(report["purged"]["incidents"], 1);
+    assert!(aged_incidents >= 1 && aged_links >= 1, "backdated rows counted as aged: incidents={aged_incidents} links={aged_links}");
     for entity in ["incidents", "incident_links"] {
         srv.client
             .post(format!("{}/admin/retention/policies/{entity}", srv.base))
@@ -1942,6 +1960,8 @@ async fn incident_events_fan_out_and_coverage() {
             .await
             .unwrap();
     }
+    assert_eq!(report["purged"]["incident_links"], aged_links);
+    assert_eq!(report["purged"]["incidents"], aged_incidents);
 }
 
 #[tokio::test]
@@ -3192,4 +3212,171 @@ async fn purge_preview_mirrors_real_run() {
         .send()
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn gate_duty_assignment_flow() {
+    let srv = TestServer::spawn().await;
+    let commander = srv.login("commander").await;
+    let verifier = srv.login("verifier").await;
+    let superadmin = srv.login("superadmin").await;
+
+    // Fixture site + gate.
+    let site: Value = srv
+        .client
+        .post(format!("{}/sites", srv.base))
+        .bearer_auth(&superadmin)
+        .json(&json!({ "name": format!("Duty {}", uuid::Uuid::new_v4()) }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let site_id = site["id"].as_str().unwrap().to_owned();
+    let gate_res: Value = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates", srv.base))
+        .bearer_auth(&commander)
+        .json(&json!({ "name": "North A" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let gate_id = gate_res["id"].as_str().unwrap().to_owned();
+
+    // Non-staff user refused (analyst lacks entries:write).
+    let users: Value = srv
+        .client
+        .get(format!("{}/users", srv.base))
+        .bearer_auth(&superadmin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let find_user = |name: &str| {
+        users
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|u| u["username"] == name)
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/duty", srv.base))
+        .bearer_auth(&commander)
+        .json(&json!({ "user_id": find_user("analyst") }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+
+    // Unknown user → 404.
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/duty", srv.base))
+        .bearer_auth(&commander)
+        .json(&json!({ "user_id": uuid::Uuid::new_v4().to_string() }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 404);
+
+    // Commander assigns the verifier.
+    let verifier_id = find_user("verifier");
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/duty", srv.base))
+        .bearer_auth(&commander)
+        .json(&json!({ "user_id": verifier_id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let duty: Value = res.json().await.unwrap();
+    assert_eq!(duty["duty_officer"], verifier_id);
+    assert_eq!(duty["duty_username"], "verifier");
+
+    // Gate list carries the duty assignment.
+    let gates: Value = srv
+        .client
+        .get(format!("{}/sites/{site_id}/gates", srv.base))
+        .bearer_auth(&commander)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let row = gates.as_array().unwrap().iter().find(|g| g["id"] == gate_id).unwrap();
+    assert_eq!(row["duty_username"], "verifier");
+
+    // Duty officer sees the gate on their roster.
+    let roster: Value = srv
+        .client
+        .get(format!("{}/my/duty", srv.base))
+        .bearer_auth(&verifier)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let roster_row = roster
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["gate_id"] == gate_id)
+        .expect("assigned gate in roster");
+    assert_eq!(roster_row["site_name"], site["name"]);
+
+    // Duty officer records a crossing (verifier now holds entries:write).
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/events", srv.base))
+        .bearer_auth(&verifier)
+        .json(&json!({ "direction": "entry", "method": "manual" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200, "verifier on duty records crossings");
+
+    // Clear duty.
+    let res = srv
+        .client
+        .post(format!("{}/sites/{site_id}/gates/{gate_id}/duty", srv.base))
+        .bearer_auth(&commander)
+        .json(&json!({ "user_id": null }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let cleared: Value = res.json().await.unwrap();
+    assert!(cleared["duty_officer"].is_null());
+}
+
+#[tokio::test]
+async fn stats_reflect_baseline() {
+    let srv = TestServer::spawn().await;
+    let commander = srv.login("commander").await;
+    let res = srv
+        .client
+        .get(format!("{}/stats", srv.base))
+        .bearer_auth(&commander)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let stats: Value = res.json().await.unwrap();
+    assert!(stats["sites"].as_i64().unwrap() >= 1);
+    assert!(stats["gates"].as_i64().unwrap() >= 1);
+    assert!(stats["pending_kyc"].as_i64().unwrap() >= 0);
 }
