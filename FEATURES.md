@@ -7,7 +7,7 @@ incidents with forensic evidence, and keep every action attributable and
 tamper-evident. Five roles run it: **SuperAdmin, SiteCommander, GateOperator,
 VerificationOfficer, ForensicAnalyst** — permissions checked per request.
 
-Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
+Status legend: ✅ shipped.
 
 ---
 
@@ -116,7 +116,7 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 | 9.4 | **Orphan snapshot collection** — S3 keys with no DB row, dry-run by default | ✅ |
 | 9.5 | **Site export** — gates + crossing logs + incidents (status/assignee) + evidence links as JSON (`GET /sites/:sid/export`) | ✅ |
 | 9.6 | Backup runbooks: `pg_dump` for Postgres, `aws s3 sync` for snapshots | ✅ |
-| 9.7 | Courtroom export packs, case merging | ◐ (out-of-scope note) |
+| 9.7 | **Courtroom export packs, case merging** — pack = case + evidence resolved + site audit slice + chain verdict (one JSON); merge moves links, tombstones absorbed case | ✅ |
 
 ## 10. Ops, deployment & integrity
 
@@ -124,10 +124,10 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 |---|---------|--------|
 | 10.1 | `docker compose` stack (pgvector DB + LocalStack S3 + API); split-process dev mode | ✅ |
 | 10.2 | **Demo reset** — truncate + reseed, refused in `APP_ENV=production`, truthful truncate report | ✅ |
-| 10.3 | Migrations 0001–0017 (schema, forensics, retention, fingerprints, lockout, retirement, audit-actor, revocation, gate duty, card lifecycle) | ✅ |
-| 10.4 | **46 integration tests** in an isolated `nigrani_test` DB (`TEST_DATABASE_URL`) with cold-start serialization; clippy `-D warnings`; `tsc -b` + `oxlint` | ✅ |
+| 10.3 | Migrations 0001–0022 (schema, forensics, retention, fingerprints, lockout, retirement, audit-actor, revocation, gate duty, card lifecycle, token allowlist, rate counters, trends/surge, SLA/merge, fuzzy dupes) | ✅ |
+| 10.4 | **57 integration tests** in an isolated `nigrani_test` DB (`TEST_DATABASE_URL`) with cold-start serialization; clippy `-D warnings`; `tsc -b` + `oxlint` | ✅ |
 | 10.5 | Production hardening: `APP_ENV=production` blocks default seeding; `JWT_SECRET` ≥ 32 chars | ✅ |
-| 10.6 | Kubernetes manifests, TLS termination, CI pipelines | ◐ (out-of-scope note) |
+| 10.6 | **Kubernetes manifests + TLS + CI** — `k8s/nigrani.yaml` (2-replica Deployment, probes, cert-manager TLS Ingress, sticky WS Ingress); `.github/workflows/ci.yml` (clippy, isolated-DB tests, tsc, oxlint) | ✅ |
 
 ## 11. Console UX (UX4G 2.0 India theme)
 
@@ -147,6 +147,6 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 - **Monitoring of protesters** is by design *credential- and crossing-based*: press attendees are KYC-vetted and QR-tracked per gate; every crossing (card or manual) is logged with direction and time; snapshots and 512-d embeddings support post-hoc identification; heatmaps and the realtime stream give commanders live gate-level flow.
 - **Trust guarantees**: hash-chained audit, rotating-refresh session families, revoked-card liveness, duplicate-document blind index, encrypted PII at rest, fail-closed crypto.
 
-## Recorded-but-unbuilt requirements (◐ above)
+## Unbuilt requirements
 
-None — all recorded requirements are shipped.
+None — every recorded requirement is shipped.
