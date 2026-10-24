@@ -116,6 +116,12 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 - `POST/GET .../incidents/:iid/links` `{kind: entry|embedding|snapshot|note,
   ref_id?, note?}` → evidence attachments
 - `GET /sites/:site_id/heatmap` → 24h per-gate entry/exit totals
+- `GET /sites/:site_id/trends?hours=168` (2..=720, needs `gates:read`) → hourly
+  entry/exit buckets across the site — occupancy trends beyond the 24h view
+- `GET|POST /sites/:site_id/surge` → per-site surge alerting: set/clear a
+  threshold (entries/hour/gate, 1..=10000, needs `sites:write`); crossing it
+  fires one deduped alert per gate-hour, audited, fanned out live on
+  `/events` as `surge`
 - Forensic bench updates live over the event stream (no manual refresh)
 
 ## Realtime

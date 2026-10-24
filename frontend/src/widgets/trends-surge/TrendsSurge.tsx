@@ -1,0 +1,156 @@
+import { useState } from 'react'
+import { apiFetch } from '@/shared/api'
+import { useSurge, useTrends } from '@/entities/site'
+
+const WINDOWS = [24, 72, 168] as const
+
+function fmtHour(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric' })
+}
+
+/// Occupancy trends (hourly entry/exit bars over a selectable window) and
+/// per-site surge alerting: threshold configuration, recent alerts, live
+/// banner. REST is the source of truth; the stream only invalidates.
+export default function TrendsSurge({
+  siteId,
+  canConfigure,
+}: {
+  siteId: string | null
+  canConfigure: boolean
+}) {
+  const [hours, setHours] = useState<(typeof WINDOWS)[number]>(24)
+  const trends = useTrends(siteId, hours)
+  const surge = useSurge(siteId)
+  const [thresholdInput, setThresholdInput] = useState('')
+  const [notice, setNotice] = useState<string | null>(null)
+
+  async function saveThreshold(value: number | null) {
+    setNotice(null)
+    const res = await apiFetch(`/sites/${siteId}/surge`, {
+      method: 'POST',
+      body: JSON.stringify({ threshold: value }),
+    })
+    if (!res.ok) {
+      const body: unknown = await res.json().catch(() => ({}))
+      const err = body !== null && typeof body === 'object' && 'error' in body ? body.error : null
+      setNotice(typeof err === 'string' && err.length > 0 ? err : 'Could not set surge threshold')
+      return
+    }
+    surge.refetch()
+  }
+
+  const buckets = trends.data ?? []
+  const peak = Math.max(1, ...buckets.map((b) => b.entries + b.exits))
+  const alerts = surge.data?.alerts ?? []
+  const threshold = surge.data?.threshold ?? null
+
+  return (
+    <section className="mt-8">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-2xl font-semibold tracking-tight">Crowd flow</h2>
+        <span className="text-sm text-slate-500">hourly crossings · {siteId === null ? 'no site selected' : `${hours}h window`}</span>
+        <div className="ml-auto flex gap-1" role="group" aria-label="Trend window">
+          {WINDOWS.map((h) => (
+            <button
+              key={h}
+              onClick={() => setHours(h)}
+              className={
+                'border px-2 py-1 text-xs font-medium ' +
+                (hours === h ? 'border-signal bg-signal text-white' : 'border-slate-300 bg-white hover:border-slate-400')
+              }
+            >
+              {h}h
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {siteId !== null && surge.data?.alerts.length ? (
+        <div role="alert" className="mt-3 rounded-xl border border-signal bg-white p-3 text-sm shadow-sm">
+          <p className="font-semibold text-deny">Surge alerts · last 24h</p>
+          <ul className="mt-1 list-inside list-disc">
+            {alerts.map((a) => (
+              <li key={a.id}>
+                {a.gate_name}: {a.count} entries by {fmtHour(a.window_start)} (threshold {a.threshold}/hour)
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {siteId !== null ? (
+        <>
+          {trends.isLoading ? <p className="mt-2">Loading trend…</p> : null}
+          {trends.isError ? <p role="alert" className="mt-2 text-deny">Trend would not load.</p> : null}
+          {buckets.length > 0 ? (
+            <div className="mt-3 flex h-16 items-end gap-1" aria-label="Hourly crossings chart" role="img">
+              {buckets.map((b) => (
+                <div
+                  key={b.hour}
+                  className="flex-1 rounded-t bg-signal-deep"
+                  style={{ height: `${Math.round(((b.entries + b.exits) / peak) * 100)}%` }}
+                  title={`${fmtHour(b.hour)} — ${b.entries} in / ${b.exits} out`}
+                />
+              ))}
+            </div>
+          ) : null}
+          {buckets.length === 0 && !trends.isLoading && !trends.isError ? (
+            <p className="mt-2 text-sm text-slate-500">No crossings in this window.</p>
+          ) : null}
+
+          {canConfigure ? (
+            <form
+              className="mt-3 flex flex-wrap items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const n = Number(thresholdInput)
+                if (thresholdInput === '') return
+                if (!Number.isInteger(n) || n < 1 || n > 10_000) {
+                  setNotice('Threshold must be 1..=10000 entries/hour')
+                  return
+                }
+                void saveThreshold(n)
+              }}
+            >
+              <label className="text-sm text-slate-600" htmlFor="surge-threshold">
+                Surge threshold (entries/hour/gate)
+              </label>
+              <input
+                id="surge-threshold"
+                className="w-24 border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                placeholder={threshold === null ? 'off' : String(threshold)}
+                value={thresholdInput}
+                onChange={(e) => setThresholdInput(e.target.value)}
+                inputMode="numeric"
+              />
+              <button type="submit" className="bg-signal px-3 py-1.5 text-sm font-medium text-white hover:bg-signal-deep">
+                Set
+              </button>
+              {threshold !== null ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setThresholdInput('')
+                    void saveThreshold(null)
+                  }}
+                  className="border border-slate-300 bg-white px-3 py-1.5 text-sm hover:border-slate-400"
+                >
+                  Clear
+                </button>
+              ) : null}
+              <span className="text-sm text-slate-500">
+                {threshold === null ? 'Alerting off' : `Alerting over ${threshold}/hour/gate`}
+              </span>
+            </form>
+          ) : null}
+          {notice ? (
+            <p role="alert" className="mt-2 text-sm text-deny">
+              {notice}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  )
+}

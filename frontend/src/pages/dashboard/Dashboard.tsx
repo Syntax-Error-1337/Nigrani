@@ -7,6 +7,7 @@ import Kiosk from '@/widgets/kiosk'
 import OperatorsPanel, { PasswordDialog } from '@/widgets/operators-panel'
 import RetentionPanel from '@/widgets/retention-panel'
 import ReviewDesk from '@/widgets/review-desk'
+import TrendsSurge from '@/widgets/trends-surge'
 import { useGates, useSites, useStats } from '@/entities/site'
 import { apiFetch } from '@/shared/api'
 import { useSession, type Role } from '@/shared/session'
@@ -234,6 +235,8 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+
+        <TrendsSurge siteId={activeSiteId} canConfigure={canWrite} />
 
         <section className="mt-8">
           <div className="flex flex-wrap items-center gap-3">

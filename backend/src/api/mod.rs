@@ -26,8 +26,9 @@ use self::routes_retention::{export_site, list_policies, preview_purge, run_purg
 use self::routes_users::{change_password, create_user, set_active, unlock_user};
 use self::routes_auth::{list_assignable, list_users, login, logout, logout_all, me, refresh, revoke_access};
 use self::routes_forensics::{
-    add_incident_link, assign_incident, create_incident, enroll_embedding, list_incident_links,
-    list_incidents, search_embeddings, site_heatmap, transition_incident,
+    add_incident_link, assign_incident, create_incident, enroll_embedding, get_surge,
+    list_incident_links, list_incidents, search_embeddings, set_surge, site_heatmap,
+    site_trends, transition_incident,
 };
 use self::routes_gate::{collect_snapshots, download_snapshot, gate_log, record_event, share_snapshot, upload_snapshot};
 use self::routes_kyc::{
@@ -107,6 +108,8 @@ pub fn router(state: AppState) -> Router {
             post(add_incident_link).get(list_incident_links),
         )
         .route("/sites/:site_id/heatmap", get(site_heatmap))
+        .route("/sites/:site_id/trends", get(site_trends))
+        .route("/sites/:site_id/surge", get(get_surge).post(set_surge))
         .route("/audit", get(list_audit))
         .route("/audit/verify", get(verify_audit))
         .route("/sites/:site_id/audit", get(site_audit))

@@ -73,7 +73,7 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 | 5.2 | **Heatmap** — 24h per-gate entry/exit totals per site (`GET /sites/:sid/heatmap`), proportional bars on the console | ✅ |
 | 5.3 | Dashboard KPI row auto-refreshing every 30 s + live indicator on the console | ✅ |
 | 5.4 | Live gate heat: which entry is surging right now | ✅ (via 4.5 + 5.2) |
-| 5.5 | Historical occupancy / density trends beyond 24h; surge alerts & thresholds | ◐ (not required by any shipped slice) |
+| 5.5 | Historical occupancy / density trends beyond 24h; surge alerts & thresholds | ✅ |
 
 ## 6. Forensics & identification
 
@@ -147,4 +147,4 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 ## Recorded-but-unbuilt requirements (◐ above)
 
 SLA timers/escalation, case merging, courtroom packs · fuzzy/photo-hash
-duplicate matching · occupancy trends beyond 24h and surge alerting.
+duplicate matching.

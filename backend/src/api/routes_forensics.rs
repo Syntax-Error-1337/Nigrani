@@ -761,3 +761,216 @@ pub async fn site_heatmap(
             .collect(),
     ))
 }
+
+// --- Occupancy trends + surge alerting (crowd flow beyond the 24h view) ---
+
+#[derive(Debug, Serialize)]
+pub struct TrendBucket {
+    /// ISO hour bucket (UTC).
+    pub hour: DateTime<Utc>,
+    pub entries: i64,
+    pub exits: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SurgeAlertView {
+    pub id: Uuid,
+    pub gate_id: Uuid,
+    pub gate_name: String,
+    pub window_start: DateTime<Utc>,
+    pub count: i64,
+    pub threshold: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SurgeStatus {
+    /// Null = alerting disabled for this site.
+    pub threshold: Option<i32>,
+    pub alerts: Vec<SurgeAlertView>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SurgeThreshold {
+    /// Omit or null clears alerting; 1..=10_000 sets entries/hour per gate.
+    pub threshold: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TrendsQuery {
+    /// Window in hours, clamped to 2..=720 (30 days).
+    pub hours: Option<i64>,
+}
+
+/// Hourly entry/exit buckets across the whole site (all gates merged),
+/// up to 30 days back. Source of truth for occupancy trends.
+pub async fn site_trends(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(site_id): Path<Uuid>,
+    Query(q): Query<TrendsQuery>,
+) -> AppResult<Json<Vec<TrendBucket>>> {
+    require_permission(&state, &user, "gates:read").await?;
+    let hours = q.hours.unwrap_or(24).clamp(2, 720);
+    let rows: Vec<(DateTime<Utc>, i64, i64)> = sqlx::query_as(
+        "SELECT date_trunc('hour', l.recorded_at) AS bucket,
+                COUNT(*) FILTER (WHERE l.direction = 'entry'),
+                COUNT(*) FILTER (WHERE l.direction = 'exit')
+         FROM entry_logs l JOIN gates g ON g.id = l.gate_id
+         WHERE g.site_id = $1 AND l.recorded_at > now() - ($2 || ' hours')::interval
+         GROUP BY bucket ORDER BY bucket",
+    )
+    .bind(site_id)
+    .bind(hours.to_string())
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    Ok(Json(
+        rows.into_iter().map(|(hour, entries, exits)| TrendBucket { hour, entries, exits }).collect(),
+    ))
+}
+
+/// Surge settings + recent alerts (last 24h) for a site.
+pub async fn get_surge(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(site_id): Path<Uuid>,
+) -> AppResult<Json<SurgeStatus>> {
+    require_permission(&state, &user, "gates:read").await?;
+    let threshold: Option<i32> =
+        sqlx::query_scalar("SELECT surge_threshold FROM sites WHERE id = $1")
+            .bind(site_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(AppError::Db)?
+            .flatten();
+    let alerts = load_alerts(&state.pool, site_id).await?;
+    Ok(Json(SurgeStatus { threshold, alerts }))
+}
+
+/// Set or clear the per-site surge threshold (entries/hour per gate).
+pub async fn set_surge(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(site_id): Path<Uuid>,
+    Json(body): Json<SurgeThreshold>,
+) -> AppResult<Json<SurgeStatus>> {
+    require_permission(&state, &user, "sites:write").await?;
+    if let Some(t) = body.threshold {
+        if !(1..=10_000).contains(&t) {
+            return Err(AppError::BadRequest("threshold must be 1..=10000 entries/hour".to_owned()));
+        }
+    }
+    let updated: Option<i32> = sqlx::query_scalar(
+        "UPDATE sites SET surge_threshold = $1 WHERE id = $2 RETURNING surge_threshold",
+    )
+    .bind(body.threshold)
+    .bind(site_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let Some(threshold) = updated else {
+        return Err(AppError::NotFound("site not found".to_owned()));
+    };
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "site.surge_threshold",
+        "site",
+        Some(site_id),
+        serde_json::json!({ "threshold": threshold }),
+    )
+    .await;
+    let alerts = load_alerts(&state.pool, site_id).await?;
+    Ok(Json(SurgeStatus { threshold: Some(threshold), alerts }))
+}
+
+/// Joined surge-alert row: (id, gate_id, gate_name, window_start, count, threshold, created_at).
+type SurgeAlertRow = (Uuid, Uuid, String, DateTime<Utc>, i32, i32, DateTime<Utc>);
+
+/// Recent surge alerts for a site (last 24h), newest first.
+async fn load_alerts(pool: &sqlx::PgPool, site_id: Uuid) -> AppResult<Vec<SurgeAlertView>> {
+    let rows: Vec<SurgeAlertRow> = sqlx::query_as(
+        "SELECT a.id, a.gate_id, g.name, a.window_start, a.count, a.threshold, a.created_at
+         FROM surge_alerts a JOIN gates g ON g.id = a.gate_id
+         WHERE a.site_id = $1 AND a.created_at > now() - interval '24 hours'
+         ORDER BY a.created_at DESC LIMIT 100",
+    )
+    .bind(site_id)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::Db)?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, gate_id, gate_name, window_start, count, threshold, created_at)| SurgeAlertView {
+            id,
+            gate_id,
+            gate_name,
+            window_start,
+            count: i64::from(count),
+            threshold: i64::from(threshold),
+            created_at,
+        })
+        .collect())
+}
+
+/// Post-insert surge check for one entry crossing: fires at most one alert
+/// per (gate, hour) when the hourly count crosses the site threshold.
+pub async fn check_surge(
+    pool: &sqlx::PgPool,
+    hub: &super::events::EventHub,
+    site_id: Uuid,
+    gate_id: Uuid,
+) {
+    // Site threshold unset → no-op (single cheap SELECT per crossing).
+    let threshold: Option<i32> =
+        sqlx::query_scalar("SELECT surge_threshold FROM sites WHERE id = $1")
+            .bind(site_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    let Some(threshold) = threshold else { return };
+    let window = "date_trunc('hour', now())";
+    let Ok((count,)): std::result::Result<(i64,), _> = sqlx::query_as(&format!(
+        "SELECT COUNT(*) FROM entry_logs WHERE gate_id = $1 AND direction = 'entry'
+         AND recorded_at >= {window}"
+    ))
+    .bind(gate_id)
+    .fetch_one(pool)
+    .await
+    else { return };
+    if count <= i64::from(threshold) {
+        return;
+    }
+    // Insert-once per gate-hour; a winner broadcasts, losers fall through.
+    let inserted: Option<(Uuid, DateTime<Utc>)> = sqlx::query_as(&format!(
+        "INSERT INTO surge_alerts (site_id, gate_id, window_start, count, threshold)
+         VALUES ($1, $2, {window}, $3, $4)
+         ON CONFLICT (gate_id, window_start) DO NOTHING
+         RETURNING id, created_at"
+    ))
+    .bind(site_id)
+    .bind(gate_id)
+    .bind(i32::try_from(count).unwrap_or(i32::MAX))
+    .bind(threshold)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    if let Some((alert_id, created_at)) = inserted {
+        tracing::warn!(%site_id, %gate_id, count, threshold, "surge alert triggered");
+        super::routes_audit::record(
+            pool, None, "surge.triggered", "surge_alert", Some(alert_id),
+            serde_json::json!({ "site_id": site_id, "gate_id": gate_id, "count": count, "threshold": threshold }),
+        )
+        .await;
+        hub.publish(&super::events::HubEvent::Surge {
+            at: created_at,
+            site_id,
+            gate_id,
+            count,
+            threshold: i64::from(threshold),
+        });
+    }
+}

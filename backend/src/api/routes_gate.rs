@@ -219,6 +219,10 @@ pub async fn record_event(
         direction: log.direction.as_str().to_owned(),
         method: log.method.as_str().to_owned(),
     });
+    // Fire-and-forget surge evaluation (entry crossings only).
+    if log.direction.as_str() == "entry" {
+        super::routes_forensics::check_surge(&state.pool, &state.hub, site_id, gate_id).await;
+    }
     Ok(Json(log))
 }
 

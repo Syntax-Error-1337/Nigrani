@@ -42,6 +42,14 @@ pub enum HubEvent {
     Topology {
         at: chrono::DateTime<chrono::Utc>,
     },
+    /// Hourly entries at a gate crossed the site's surge threshold.
+    Surge {
+        at: chrono::DateTime<chrono::Utc>,
+        site_id: Uuid,
+        gate_id: Uuid,
+        count: i64,
+        threshold: i64,
+    },
 }
 
 #[derive(Clone)]

@@ -57,3 +57,40 @@ export function useGates(siteId: string | null, q: string, showArchived = false)
     enabled: siteId !== null,
   })
 }
+
+export interface TrendBucket {
+  hour: string
+  entries: number
+  exits: number
+}
+
+export function useTrends(siteId: string | null, hours: number) {
+  return useQuery({
+    queryKey: ['trends', siteId, hours],
+    queryFn: () => getJson<TrendBucket[]>(`/sites/${siteId}/trends?hours=${hours}`),
+    enabled: siteId !== null,
+  })
+}
+
+export interface SurgeAlert {
+  id: string
+  gate_id: string
+  gate_name: string
+  window_start: string
+  count: number
+  threshold: number
+  created_at: string
+}
+
+export interface SurgeStatus {
+  threshold: number | null
+  alerts: SurgeAlert[]
+}
+
+export function useSurge(siteId: string | null) {
+  return useQuery({
+    queryKey: ['surge', siteId],
+    queryFn: () => getJson<SurgeStatus>(`/sites/${siteId}/surge`),
+    enabled: siteId !== null,
+  })
+}
