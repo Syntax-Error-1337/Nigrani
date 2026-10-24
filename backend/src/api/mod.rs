@@ -7,6 +7,12 @@ mod routes_users;
 pub mod events;
 mod paging;
 pub mod rate_limit;
+
+async fn metrics_handler(
+    State(state): State<AppState>,
+) -> String {
+    routes_metrics::scrape(&state).await
+}
 mod request_id;
 mod routes_auth;
 mod routes_kyc;
@@ -16,7 +22,10 @@ mod routes_forensics;
 pub use routes_audit::{chain_hash, verify_chain, anchors_ok};
 pub use routes_forensics::escalate_overdue;
 mod routes_gate;
+mod routes_ingest;
+mod routes_metrics;
 
+use axum::extract::State;
 use axum::routing::{get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
@@ -24,11 +33,11 @@ use tower_http::trace::TraceLayer;
 use self::events::events_ws;
 use self::routes_audit::{anchor_audit, list_audit, site_audit, verify_audit};
 use self::routes_demo::reset_demo;
-use self::routes_retention::{export_site, list_policies, preview_purge, run_purge, set_policy};
+use self::routes_retention::{daily_report, export_site, list_policies, preview_purge, run_purge, set_policy};
 use self::routes_users::{change_password, create_user, set_active, unlock_user};
 use self::routes_auth::{
     list_assignable, list_sessions, list_users, login, logout, logout_all, me, refresh,
-    revoke_access, revoke_session, totp_disable, totp_enable, totp_setup,
+    create_service_token, revoke_access, revoke_session, totp_disable, totp_enable, totp_setup,
 };
 use self::routes_forensics::{
     add_incident_link, assign_incident, create_incident, enroll_embedding, export_pack,
@@ -73,12 +82,15 @@ pub fn router(state: AppState) -> Router {
     );
     Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(metrics_handler))
+
         .route("/events", get(events_ws))
         .route("/auth/me", get(me))
         .route("/auth/logout", post(logout))
         .route("/auth/logout/all", post(logout_all))
         .route("/auth/sessions", get(list_sessions))
         .route("/auth/sessions/:sid/revoke", post(revoke_session))
+        .route("/auth/service-tokens", post(create_service_token))
         .route("/auth/totp/setup", post(totp_setup))
         .route("/auth/totp/enable", post(totp_enable))
         .route("/auth/totp/disable", post(totp_disable))
@@ -123,6 +135,7 @@ pub fn router(state: AppState) -> Router {
         .route("/sites/:site_id/trends", get(site_trends))
         .route("/sites/:site_id/surge", get(get_surge).post(set_surge))
         .route("/sites/:site_id/capacity", post(set_capacity))
+        .route("/sites/:site_id/ingest/:gate_id/event", post(routes_ingest::ingest_event))
         .route("/audit", get(list_audit))
         .route("/audit/verify", get(verify_audit))
         .route("/audit/anchor", post(anchor_audit))
@@ -133,11 +146,13 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/retention/preview", post(preview_purge))
         .route("/admin/demo/reset", post(reset_demo))
         .route("/sites/:site_id/export", get(export_site))
+        .route("/sites/:site_id/report.csv", get(daily_report))
         .merge(kyc_submit)
         .merge(auth)
         .merge(refresh)
         .merge(snapshots)
         .layer(axum::Extension(state.hub.clone()))
+        .layer(axum::middleware::from_fn(routes_metrics::count_middleware))
         .layer(axum::middleware::from_fn(request_id::request_id))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

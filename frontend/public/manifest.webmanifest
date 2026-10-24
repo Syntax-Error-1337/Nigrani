@@ -1,0 +1,18 @@
+{
+  "name": "Nigrani — Operations Console",
+  "short_name": "Nigrani",
+  "description": "निगरानी — har pravesh par nigrani. Crowd-access command for protest sites.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#14395d",
+  "lang": "en-IN",
+  "icons": [
+    {
+      "src": "/nigrani-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

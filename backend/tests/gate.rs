@@ -432,3 +432,48 @@ async fn capacity_cap_refuses_entry_and_announces() {
         .bearer_auth(&sa).json(&json!({"capacity": null})).send().await.unwrap();
     assert_eq!(clear.status(), 200);
 }
+
+#[tokio::test]
+async fn hardware_ingest_with_service_token() {
+    let srv = TestServer::spawn().await;
+    let sa = srv.login("superadmin").await;
+    let site: Value = srv.client.post(format!("{}/sites", srv.base))
+        .bearer_auth(&sa).json(&json!({"name": format!("Ingest {}", uuid::Uuid::new_v4()), "location": "x"}))
+        .send().await.unwrap().json().await.unwrap();
+    let sid = site["id"].as_str().unwrap();
+    let gate: Value = srv.client.post(format!("{}/sites/{sid}/gates", srv.base))
+        .bearer_auth(&sa).json(&json!({"name": "T1", "direction": "both"}))
+        .send().await.unwrap().json().await.unwrap();
+    let gid = gate["id"].as_str().unwrap();
+
+    // Mint machine credential; raw shown once.
+    let mint: Value = srv.client.post(format!("{}/auth/service-tokens", srv.base))
+        .bearer_auth(&sa).json(&json!({"name": format!("turnstile-{}", uuid::Uuid::new_v4())}))
+        .send().await.unwrap().json().await.unwrap();
+    let raw = mint["token"].as_str().unwrap().to_owned();
+    assert!(raw.starts_with("svc_"));
+
+    // Machine posts a crossing: accepted, logged, actor = machine (NULL).
+    let r = srv.client.post(format!("{}/sites/{sid}/ingest/{gid}/event", srv.base))
+        .header("authorization", format!("Bearer {raw}"))
+        .json(&json!({"gate_id": gid, "direction": "entry", "method": "manual"}))
+        .send().await.unwrap();
+    assert_eq!(r.status(), 200, "{}", r.text().await.unwrap_or_default());
+    let state = test_state().await;
+    let actor: Option<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT recorded_by FROM entry_logs ORDER BY recorded_at DESC LIMIT 1")
+        .fetch_one(&state.pool).await.unwrap();
+    assert!(actor.is_none(), "machine crossings record no operator");
+
+    // Garbage token refused.
+    let bad = srv.client.post(format!("{}/sites/{sid}/ingest/{gid}/event", srv.base))
+        .header("authorization", "Bearer svc_nope")
+        .json(&json!({"gate_id": gid, "direction": "entry", "method": "manual"}))
+        .send().await.unwrap();
+    assert_eq!(bad.status(), 401);
+    // Non-superadmin cannot mint.
+    let op = srv.login("commander").await;
+    let no = srv.client.post(format!("{}/auth/service-tokens", srv.base))
+        .bearer_auth(&op).json(&json!({"name": "x"})).send().await.unwrap();
+    assert_eq!(no.status(), 403);
+}

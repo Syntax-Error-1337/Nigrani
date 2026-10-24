@@ -5,3 +5,6 @@ target/
 .DS_Store
 .agents/
 .omp/
+backups/
+frontend/test-results/
+frontend/playwright-report/

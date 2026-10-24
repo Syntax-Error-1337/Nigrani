@@ -302,3 +302,34 @@ async fn retention_purge_deletes_s3_objects_for_erasure() {
     let gone = store.exists(&key).await.unwrap();
     assert!(!gone, "S3 object must be deleted after purge");
 }
+
+#[tokio::test]
+async fn daily_report_csv_counts_crossings() {
+    let srv = TestServer::spawn().await;
+    let sa = srv.login("superadmin").await;
+    let site: Value = srv.client.post(format!("{}/sites", srv.base))
+        .bearer_auth(&sa).json(&json!({"name": format!("Report {}", uuid::Uuid::new_v4()), "location": "x"}))
+        .send().await.unwrap().json().await.unwrap();
+    let sid = site["id"].as_str().unwrap();
+    let gate: Value = srv.client.post(format!("{}/sites/{sid}/gates", srv.base))
+        .bearer_auth(&sa).json(&json!({"name": "RG", "direction": "both"}))
+        .send().await.unwrap().json().await.unwrap();
+    let gid = gate["id"].as_str().unwrap();
+    for d in ["entry", "entry", "exit"] {
+        srv.client.post(format!("{}/sites/{sid}/gates/{gid}/events", srv.base))
+            .bearer_auth(&sa).json(&json!({"direction": d, "method": "manual"}))
+            .send().await.unwrap();
+    }
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let res = srv.client.get(format!("{}/sites/{sid}/report.csv?date={today}", srv.base))
+        .bearer_auth(&sa).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+    let csv = res.text().await.unwrap();
+    assert!(csv.contains("gate,card_entries,manual_entries,exits"));
+    let row = csv.lines().nth(1).unwrap();
+    assert!(row.ends_with("0,2,1"), "got: {row}");
+    // Bad date refused.
+    let bad = srv.client.get(format!("{}/sites/{sid}/report.csv?date=nope", srv.base))
+        .bearer_auth(&sa).send().await.unwrap();
+    assert_eq!(bad.status(), 400);
+}

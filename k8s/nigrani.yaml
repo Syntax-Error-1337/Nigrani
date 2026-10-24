@@ -117,3 +117,38 @@ spec:
               service:
                 name: nigrani-api
                 port: {number: 80}
+---
+# Nightly backup (s-I7): pg_dump into an PVC + snapshot sync; keeps 7.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nigrani-backup
+  namespace: nigrani
+  labels: {app: nigrani-backup}
+spec:
+  schedule: "30 18 * * *"   # 00:00 IST
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: nigrani-secrets, key: database-password}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  pg_dump -h nigrani-db -U nigrani --no-owner --no-privileges nigrani > /backups/nigrani-$(date -u +%Y%m%dT%H%M%SZ).sql
+                  find /backups -name 'nigrani-*.sql' -mtime +7 -delete
+              volumeMounts:
+                - {name: backups, mountPath: /backups}
+          volumes:
+            - name: backups
+              persistentVolumeClaim: {claimName: nigrani-backups}

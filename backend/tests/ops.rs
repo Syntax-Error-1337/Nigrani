@@ -447,3 +447,17 @@ async fn sla_sweeper_escalates_overdue_without_any_read() {
         .fetch_one(&state.pool).await.unwrap();
     assert!(sys_audit >= 1);
 }
+
+#[tokio::test]
+async fn metrics_endpoint_counts_and_gauges() {
+    let srv = TestServer::spawn().await;
+    // Generate some traffic (one 2xx, one 4xx).
+    let _ = srv.client.get(format!("{}/health", srv.base)).send().await.unwrap();
+    let _ = srv.client.get(format!("{}/users", srv.base)).send().await.unwrap(); // 401
+    let m = srv.client.get(format!("{}/metrics", srv.base)).send().await.unwrap();
+    assert_eq!(m.status(), 200);
+    let body = m.text().await.unwrap();
+    assert!(body.contains("nigrani_requests_total{class=\"2xx\"}"), "{body}");
+    assert!(body.contains("nigrani_rows_total{entity=\"users\"}"));
+    assert!(body.contains("entries_24h"));
+}

@@ -626,3 +626,47 @@ pub async fn revoke_session(
     .await;
     Ok(Json(serde_json::json!({ "revoked": true })))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ServiceTokenBody {
+    /// Machine label (turnstile-1, nfc-gate-3...).
+    pub name: String,
+    /// Comma-separated permission names the token holds.
+    pub permissions: Option<String>,
+}
+
+/// Mint a machine credential for hardware integrations (SuperAdmin). The
+/// raw token is returned ONCE; only its sha256 lands in the DB.
+pub async fn create_service_token(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(body): Json<ServiceTokenBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    if user.role != Role::SuperAdmin {
+        return Err(AppError::Forbidden("service tokens are SuperAdmin-only".to_owned()));
+    }
+    let name = body.name.trim();
+    if name.is_empty() || name.len() > 64 {
+        return Err(AppError::BadRequest("name required (≤64 chars)".to_owned()));
+    }
+    let raw = format!("svc_{}", uuid::Uuid::new_v4().simple());
+    let permissions = body.permissions.unwrap_or_else(|| "entries:write".to_owned());
+    sqlx::query("INSERT INTO service_tokens (name, token_hash, permissions, created_by) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET token_hash = $2, permissions = $3, revoked_at = NULL")
+        .bind(name)
+        .bind(crate::infrastructure::auth::hex_digest(&raw))
+        .bind(&permissions)
+        .bind(user.id)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "auth.service_token_created",
+        "service_token",
+        None,
+        serde_json::json!({ "name": name, "permissions": permissions }),
+    )
+    .await;
+    Ok(Json(serde_json::json!({ "name": name, "token": raw, "permissions": permissions })))
+}

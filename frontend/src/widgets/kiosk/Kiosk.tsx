@@ -14,23 +14,26 @@ function apiError(body: unknown, fallback: string): string {
 
 /// Operator copy per denial class: forgery confronts, revocation and
 /// pending redirect. Server `reason` values are stable API (s24).
-function denialCopy(reason: unknown): string {
-  if (reason === 'revoked') return 'Card revoked — redirect holder to the press desk'
-  if (reason === 'not_approved') return 'Application not approved — redirect to accreditation'
-  if (reason === 'expired') return 'Card expired — redirect holder to the press desk for reissue'
-  if (reason === 'superseded') return 'Card superseded by a newer print — deny entry'
-  return 'Card signature invalid — deny entry'
+/// Server `reason` → string-table key (stable API; server messages are
+/// literal constants quoted in backend tests).
+type DenialKey = 'denyRevoked' | 'denyPending' | 'denyExpired' | 'denySuperseded' | 'denyForged'
+function denialKey(reason: unknown): DenialKey | null {
+  if (reason === 'revoked') return 'denyRevoked'
+  if (reason === 'not_approved') return 'denyPending'
+  if (reason === 'expired') return 'denyExpired'
+  if (reason === 'superseded') return 'denySuperseded'
+  if (reason === 'bad_signature') return 'denyForged'
+  return null
 }
 
-/// Record-time refusal mirrors the same copy (server messages are literal
-/// constants quoted in backend tests).
-function recordDenialCopy(serverMessage: string): string | null {
-  if (serverMessage.includes('at capacity')) return 'Site at capacity — hold the queue, admit on exit'
-  if (serverMessage.includes('press card revoked')) return denialCopy('revoked')
-  if (serverMessage.includes('not approved')) return denialCopy('not_approved')
-  if (serverMessage.includes('press card expired')) return denialCopy('expired')
-  if (serverMessage.includes('press card superseded')) return denialCopy('superseded')
-  if (serverMessage.includes('failed verification')) return denialCopy('bad_signature')
+/// Record-time refusal mirrors the same copy.
+function recordDenialKey(serverMessage: string): DenialKey | null {
+  if (serverMessage.includes('at capacity')) return null // handled inline (untranslated)
+  if (serverMessage.includes('press card revoked')) return 'denyRevoked'
+  if (serverMessage.includes('not approved')) return 'denyPending'
+  if (serverMessage.includes('press card expired')) return 'denyExpired'
+  if (serverMessage.includes('press card superseded')) return 'denySuperseded'
+  if (serverMessage.includes('failed verification')) return 'denyForged'
   return null
 }
 
@@ -44,6 +47,91 @@ function isPressCard(body: unknown): body is PressCard {
     typeof body.full_name === 'string'
   )
 }
+
+
+/// Kiosk operator strings — Hindi/English toggle (s-I2). Notices and
+/// denial copy included; the machine-facing log labels stay English.
+const KIOSK_STRINGS = {
+  en: {
+    title: 'Gate kiosk',
+    offline: 'Offline',
+    cachedList: 'cached deny list active',
+    noList: 'no cached deny list',
+    pending: 'pending',
+    retryNow: 'Retry now',
+    retrying: 'Retrying…',
+    waiting: 'Waiting…',
+    payloadLabel: '{t.payloadLabel}',
+    verifyCard: 'Verify card',
+    direction: 'Direction',
+    entry: 'Entry',
+    exit: 'Exit',
+    snapshotLabel: '{t.snapshotLabel}',
+    staged: 'staged:',
+    openCapture: 'open capture',
+    logCard: 'Log card entry',
+    logManual: 'Log manual entry',
+    recent: 'Recent crossings',
+    loading: 'Loading log…',
+    empty: '{t.empty}',
+    queued: 'Queued crossings',
+    try: 'try',
+    denyRevoked: 'Card revoked — redirect holder to the press desk',
+    denyPending: 'Application not approved — redirect to accreditation',
+    denyExpired: 'Card expired — redirect holder to the press desk for reissue',
+    denySuperseded: 'Card superseded by a newer print — deny entry',
+    denyForged: 'Card signature invalid — deny entry',
+    offlineKnownDead: 'Offline (cached list): card is revoked, expired, or superseded — deny entry',
+    offlineStale: 'Offline — cached deny list is over 24 h old; verify against it is stale',
+    offlineManual: 'Offline — signature cannot be verified. Admit via manual override (audited) or wait for reconnect',
+    queuedOffline: 'Offline — crossing queued, will retry automatically',
+    queuedBusy: 'Server busy — crossing queued, will retry automatically',
+    gateRetired: 'Gate retired — crossing refused, not queued',
+    flushed: (n: number) => `Flushed ${n} queued crossing${n === 1 ? '' : 's'}`,
+    dropped: (n: number) => `${n} queued crossing(s) dropped — gate retired`,
+    stillOffline: (n: number) => `Still offline — ${n} crossing(s) waiting`,
+  },
+  hi: {
+    title: 'गेट कियोस्क',
+    offline: 'ऑफ़लाइन',
+    cachedList: 'कैश्ड डिनाई सूची सक्रिय',
+    noList: 'कोई कैश्ड डिनाई सूची नहीं',
+    pending: 'लंबित',
+    retryNow: 'अभी पुनः प्रयास',
+    retrying: 'पुनः प्रयास…',
+    waiting: 'प्रतीक्षा…',
+    payloadLabel: 'प्रेस-कार्ड पेलोड (स्कैन किया QR JSON)',
+    verifyCard: 'कार्ड सत्यापित करें',
+    direction: 'दिशा',
+    entry: 'प्रवेश',
+    exit: 'निर्गम',
+    snapshotLabel: 'स्नैपशॉट (JPEG ≤ 5MB)',
+    staged: 'स्टेज्ड:',
+    openCapture: 'कैप्चर खोलें',
+    logCard: 'कार्ड प्रवेश दर्ज करें',
+    logManual: 'मैनुअल प्रवेश दर्ज करें',
+    recent: 'हाल के क्रॉसिंग',
+    loading: 'लॉग लोड हो रहा है…',
+    empty: 'इस गेट पर अभी कोई क्रॉसिंग दर्ज नहीं है।',
+    queued: 'कतार में क्रॉसिंग',
+    try: 'प्रयास',
+    denyRevoked: 'कार्ड निरस्त — धारक को प्रेस डेस्क भेजें',
+    denyPending: 'आवेदन स्वीकृत नहीं — प्रेस डेस्क भेजें',
+    denyExpired: 'कार्ड समाप्त — नए कार्ड हेतु प्रेस डेस्क भेजें',
+    denySuperseded: 'नए प्रिंट द्वारा प्रतिस्थापित — प्रवेश निषेध',
+    denyForged: 'कार्ड हस्ताक्षर अवैध — प्रवेश निषेध',
+    offlineKnownDead: 'ऑफ़लाइन (कैश्ड सूची): कार्ड निरस्त/समाप्त/प्रतिस्थापित — प्रवेश निषेध',
+    offlineStale: 'ऑफ़लाइन — कैश्ड डिनाई सूची 24 घंटे से पुरानी; सत्यापन अविश्वसनीय',
+    offlineManual: 'ऑफ़लाइन — हस्ताक्षर सत्यापित नहीं हो सकता। मैनुअल ओवरराइड (लेखा-जोखा) से प्रवेश दें या पुनः कनेक्ट की प्रतीक्षा करें',
+    queuedOffline: 'ऑफ़लाइन — क्रॉसिंग कतार में, स्वतः पुनः प्रयास होगा',
+    queuedBusy: 'सर्वर व्यस्त — क्रॉसिंग कतार में, स्वतः पुनः प्रयास होगा',
+    gateRetired: 'गेट सेवामुक्त — क्रॉसिंग अस्वीकृत, कतार में नहीं',
+    flushed: (n: number) => `${n} कतारबद्ध क्रॉसिंग भेजी गईं`,
+    dropped: (n: number) => `${n} कतारबद्ध क्रॉसिंग हटाई गईं — गेट सेवामुक्त`,
+    stillOffline: (n: number) => `अभी ऑफ़लाइन — ${n} क्रॉसिंग प्रतीक्षारत`,
+  },
+} as const
+type KioskLang = keyof typeof KIOSK_STRINGS
 
 export default function Kiosk({
   siteId,
@@ -62,6 +150,10 @@ export default function Kiosk({
   const [notice, setNotice] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
   const [offline, setOffline] = useState(!navigator.onLine)
+  const [lang, setLang] = useState<KioskLang>(
+    () => ((localStorage.getItem('sg-lang') as KioskLang) ?? 'en'),
+  )
+  const t = KIOSK_STRINGS[lang]
   const log = useGateLog(siteId, gateId)
   const pending = useOutbox()
   const [flushing, setFlushing] = useState(false)
@@ -128,7 +220,7 @@ export default function Kiosk({
   useEffect(() => {
     void flushOutbox().then((r) => {
       if (r.sent > 0) {
-        setOk(`Flushed ${r.sent} queued crossing${r.sent === 1 ? '' : 's'}`)
+        setOk(t.flushed(r.sent))
         log.refetch()
       }
     })
@@ -153,12 +245,12 @@ export default function Kiosk({
         await promise
       }
       const r = await flushOutbox()
-      if (r.dropped > 0) setNotice(`${r.dropped} queued crossing(s) dropped — gate retired`)
+      if (r.dropped > 0) setNotice(t.dropped(r.dropped))
       if (r.sent > 0) {
-        setOk(`Flushed ${r.sent} queued crossing${r.sent === 1 ? '' : 's'}`)
+        setOk(t.flushed(r.sent))
         log.refetch()
       } else if (r.pending > 0 && r.dropped === 0) {
-        setNotice(`Still offline — ${r.pending} crossing(s) waiting`)
+        setNotice(t.stillOffline(r.pending))
       }
     } finally {
       setFlushing(false)
@@ -200,7 +292,8 @@ export default function Kiosk({
       setCard(null)
       const reason =
         body !== null && typeof body === 'object' && 'reason' in body ? body.reason : null
-      setNotice(denialCopy(reason))
+      const key = denialKey(reason)
+      setNotice(key ? t[key] : t.denyForged)
     }
   }
 
@@ -223,16 +316,16 @@ export default function Kiosk({
         cached.superseded.some((r) => r.application_id === appId)
       ) {
         setCard(null)
-        setNotice('Offline (cached list): card is revoked, expired, or superseded — deny entry')
+        setNotice(t.offlineKnownDead)
         return
       }
     }
     if (cached && Date.now() - Date.parse(cached.fetched_at) > 24 * 60 * 60 * 1000) {
-      setNotice('Offline — cached deny list is over 24 h old; verify against it is stale')
+      setNotice(t.offlineStale)
       return
     }
     setCard(null)
-    setNotice('Offline — signature cannot be verified. Admit via manual override (audited) or wait for reconnect')
+    setNotice(t.offlineManual)
   }
 
   async function uploadSnapshot(file: File) {
@@ -305,7 +398,7 @@ export default function Kiosk({
       })
     } catch {
       enqueueCrossing(payload)
-      setNotice('Offline — crossing queued, will retry automatically')
+      setNotice(t.queuedOffline)
       return
     }
     const body: unknown = await res.json().catch(() => ({}))
@@ -314,18 +407,19 @@ export default function Kiosk({
       // 410 (gate retired) drops immediately — nothing will ever succeed.
       if (res.status === 429 || res.status >= 500) {
         enqueueCrossing(payload)
-        setNotice('Server busy — crossing queued, will retry automatically')
+        setNotice(t.queuedBusy)
         return
       }
       if (res.status === 410) {
-        setNotice('Gate retired — crossing refused, not queued')
+        setNotice(t.gateRetired)
         return
       }
       const raw =
         body !== null && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
           ? body.error
           : ''
-      setNotice(recordDenialCopy(raw) ?? apiError(body, 'Could not record entry'))
+      const key = recordDenialKey(raw)
+      setNotice(key ? t[key] : apiError(body, 'Could not record entry'))
       return
     }
     setOk(method === 'manual' ? 'Manual entry logged' : `Entry logged — ${card?.full_name}`)
@@ -346,12 +440,22 @@ export default function Kiosk({
         <h2 className="text-2xl font-semibold tracking-tight">Gate kiosk</h2>
         {offline ? (
           <span className="border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">
-            Offline{crl.current ? ' — cached deny list active' : ' — no cached deny list'}
+            {t.offline} — {crl.current ? t.cachedList : t.noList}
           </span>
         ) : null}
+        <button
+          onClick={() => {
+            const next: KioskLang = lang === 'en' ? 'hi' : 'en'
+            setLang(next)
+            localStorage.setItem('sg-lang', next)
+          }}
+          className="border border-slate-300 bg-white px-2 py-0.5 text-xs font-medium hover:border-slate-400"
+        >
+          {lang === 'en' ? 'हिंदी' : 'English'}
+        </button>
         {pending.length > 0 ? (
           <span className="border border-saffron bg-saffron-mist px-2 py-0.5 text-xs font-medium text-saffron-ink">
-            {pending.length} pending
+            {pending.length} {t.pending}
           </span>
         ) : null}
         {pending.length > 0 ? (
@@ -360,7 +464,7 @@ export default function Kiosk({
             disabled={flushing}
             className="border border-slate-300 bg-white px-2 py-0.5 text-xs font-medium disabled:opacity-50"
           >
-            {flushing ? 'Retrying…' : 'Retry now'}
+            {flushing ? t.retrying : t.retryNow}
           </button>
         ) : null}
       </div>
@@ -372,7 +476,7 @@ export default function Kiosk({
               <li key={p.id} className="py-1">
                 <span className="uppercase">{p.direction}</span> · {p.method === 'press_card' ? 'card' : 'manual'}
                 {p.method === 'press_card' && p.press_card ? ` — ${p.press_card.full_name}` : null}
-                {' '}· {new Date(p.queued_at).toLocaleTimeString()} · try {p.attempts}
+                {' '}· {new Date(p.queued_at).toLocaleTimeString()} · {t.try} {p.attempts}
               </li>
             ))}
           </ol>
@@ -400,17 +504,17 @@ export default function Kiosk({
           </label>
           <div className="mt-2 flex gap-2">
             <button onClick={verify} className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
-              Verify card
+              {t.verifyCard}
             </button>
             <label className="flex flex-col gap-1 text-sm">
-              Direction
+              {t.direction}
               <select
                 className="border border-slate-300 bg-white px-3 py-2"
                 value={direction}
                 onChange={(e) => setDirection(e.target.value as 'entry' | 'exit')}
               >
-                <option value="entry">Entry</option>
-                <option value="exit">Exit</option>
+                <option value="entry">{t.entry}</option>
+                <option value="exit">{t.exit}</option>
               </select>
             </label>
           </div>
@@ -428,12 +532,12 @@ export default function Kiosk({
           </label>
           {snapshotKey ? (
             <p className="mt-1 font-ledger text-xs">
-              staged: {snapshotKey}
+              {t.staged} {snapshotKey}
               {shareUrl ? (
                 <>
                   {' — '}
                   <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">
-                    open capture
+                    {t.openCapture}
                   </a>
                 </>
               ) : null}
@@ -444,19 +548,19 @@ export default function Kiosk({
               onClick={() => record('press_card')}
               className="bg-ok px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
             >
-              Log card entry
+              {t.logCard}
             </button>
             <button
               onClick={() => record('manual')}
               className="border border-slate-300 bg-white px-4 py-2 text-sm font-medium align-middle hover:border-slate-400"
             >
-              Log manual entry
+              {t.logManual}
             </button>
           </div>
         </div>
         <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
-          <h3 className="text-base font-semibold tracking-tight">Recent crossings</h3>
-          {log.isLoading ? <p className="mt-2 text-sm">Loading log…</p> : null}
+          <h3 className="text-base font-semibold tracking-tight">{t.recent}</h3>
+          {log.isLoading ? <p className="mt-2 text-sm">{t.loading}</p> : null}
           {(log.data ?? []).length === 0 && !log.isLoading ? (
             <p className="mt-2 text-sm">No crossings recorded at this gate yet.</p>
           ) : null}

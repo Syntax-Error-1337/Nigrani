@@ -181,7 +181,7 @@ export default function Dashboard() {
             <div className="flex items-baseline gap-2 text-sm font-semibold tracking-tight">
               <span className="inline-block h-2.5 w-2.5 rounded-full bg-saffron" />
               Nigrani
-              <span className="text-xs font-normal text-white/60">सेंटिनेल-गार्ड</span>
+              <span className="text-xs font-normal text-white/60">निगरानी</span>
             </div>
             <div className="h-5 w-px bg-white/10" />
             <h1 className="text-sm font-medium text-white/80">{panel.heading}</h1>

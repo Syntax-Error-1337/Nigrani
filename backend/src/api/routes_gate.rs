@@ -30,7 +30,8 @@ pub struct EntryLog {
     pub direction: GateDirection,
     pub method: EntryMethod,
     pub snapshot_key: String,
-    pub recorded_by: Uuid,
+    /// NULL when a machine (hardware ingest) recorded the crossing.
+    pub recorded_by: Option<Uuid>,
     pub recorded_at: DateTime<Utc>,
 }
 
@@ -88,7 +89,7 @@ struct EntryRow {
     direction: String,
     method: String,
     snapshot_key: String,
-    recorded_by: Uuid,
+    recorded_by: Option<Uuid>,
     recorded_at: DateTime<Utc>,
 }
 
@@ -126,6 +127,18 @@ pub async fn record_event(
     Json(body): Json<RecordEvent>,
 ) -> AppResult<Json<EntryLog>> {
     require_permission(&state, &user, "entries:write").await?;
+    record_crossing(&state, site_id, gate_id, body, Some(user.id)).await
+}
+
+/// Shared core for the kiosk path (actor = operator) and the hardware
+/// ingest webhook (actor = None, machine).
+pub async fn record_crossing(
+    state: &AppState,
+    site_id: Uuid,
+    gate_id: Uuid,
+    body: RecordEvent,
+    actor: Option<Uuid>,
+) -> AppResult<Json<EntryLog>> {
     let direction = match body.direction.as_str() {
         "entry" => GateDirection::Entry,
         "exit" => GateDirection::Exit,
@@ -235,7 +248,7 @@ pub async fn record_event(
         .bind(direction.as_str())
         .bind(method.as_str())
         .bind(snapshot_key)
-        .bind(user.id)
+        .bind(actor)
         .fetch_one(&state.pool)
         .await
         .map_err(AppError::Db)?;
@@ -244,7 +257,7 @@ pub async fn record_event(
         .await?
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("entry log vanished after insert")))?;
     super::routes_audit::record(
-        &state.pool, Some(user.id), "gate.event", "entry_log", Some(log.id),
+        &state.pool, actor, "gate.event", "entry_log", Some(log.id),
         serde_json::json!({"gate_id": gate_id, "direction": log.direction.as_str(), "method": log.method.as_str()}),
     )
     .await;

@@ -268,3 +268,27 @@ async fn anchor_exposes_rewritten_rechained_history() {
     assert!(!anchored_ok, "anchor exposes the rewrite");
     // POSTGRES: transaction rolls back here on drop.
 }
+
+#[tokio::test]
+async fn site_audit_scope_is_permission_gated() {
+    let srv = TestServer::spawn().await;
+    let sa = srv.login("superadmin").await;
+    let site: Value = srv.client.post(format!("{}/sites", srv.base))
+        .bearer_auth(&sa).json(&json!({"name": format!("Scope {}", uuid::Uuid::new_v4()), "location": "x"}))
+        .send().await.unwrap().json().await.unwrap();
+    let sid = site["id"].as_str().unwrap();
+    // Commander (sites:read) reads the site trail; gate (no sites:read) cannot.
+    let commander = srv.login("commander").await;
+    let r = srv.client.get(format!("{}/sites/{sid}/audit", srv.base))
+        .bearer_auth(&commander).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    // Gate operator holds sites:read too (kiosk site picker) — the site
+    // trail is legitimately readable; the GLOBAL trail is the boundary.
+    let gate = srv.login("gate").await;
+    let r = srv.client.get(format!("{}/sites/{sid}/audit", srv.base))
+        .bearer_auth(&gate).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    let r = srv.client.get(format!("{}/audit", srv.base))
+        .bearer_auth(&commander).send().await.unwrap();
+    assert_eq!(r.status(), 403);
+}

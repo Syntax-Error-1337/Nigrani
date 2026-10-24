@@ -56,7 +56,7 @@ export default function Login() {
       >
         <div className="font-semibold text-lg tracking-tight">
           <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-saffron" /> Nigrani
-          <span className="ml-2 text-xs font-normal text-white/60">सेंटिनेल-गार्ड</span>
+          <span className="ml-2 text-xs font-normal text-white/60">निगरानी</span>
         </div>
         <div
           className="absolute inset-0 opacity-[0.14]"

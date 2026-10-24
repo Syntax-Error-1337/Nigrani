@@ -1,5 +1,6 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
+    response::IntoResponse,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -370,4 +371,72 @@ pub async fn export_site(
             "ref_id": r.ref_id, "note": r.note, "added_at": r.added_at,
         })).collect::<Vec<_>>(),
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReportQuery {
+    /// Day to report (UTC calendar day). Defaults to yesterday.
+    pub date: Option<String>,
+}
+
+fn csv_escape(v: &str) -> String {
+    if v.contains(',') || v.contains('"') || v.contains('\n') {
+        format!("\"{}\"", v.replace('"', "\"\""))
+    } else {
+        v.to_owned()
+    }
+}
+
+/// Daily crossings report (s-I4): per-gate entry/exit/manual counts for a
+/// UTC day as a CSV attachment. Pair with a cron/GET for the daily digest;
+/// a scheduler example lives in the README Deploy section.
+pub async fn daily_report(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(site_id): Path<uuid::Uuid>,
+    Query(q): Query<ReportQuery>,
+) -> AppResult<impl IntoResponse> {
+    require_permission(&state, &user, "sites:read").await?;
+    let day = q.date.unwrap_or_else(|| {
+        (chrono::Utc::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string()
+    });
+    chrono::NaiveDate::parse_from_str(&day, "%Y-%m-%d")
+        .map_err(|_| AppError::BadRequest("date must be YYYY-MM-DD".to_owned()))?;
+    let rows: Vec<(String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT g.name,
+                count(*) FILTER (WHERE l.direction = 'entry' AND l.method = 'press_card'),
+                count(*) FILTER (WHERE l.direction = 'entry' AND l.method = 'manual'),
+                count(*) FILTER (WHERE l.direction = 'exit')
+         FROM entry_logs l JOIN gates g ON g.id = l.gate_id
+         WHERE g.site_id = $1
+           AND l.recorded_at >= $2::date
+           AND l.recorded_at < $2::date + interval '1 day'
+         GROUP BY g.name ORDER BY g.name",
+    )
+    .bind(site_id)
+    .bind(&day)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(AppError::Db)?;
+    let mut csv = String::from("gate,card_entries,manual_entries,exits\n");
+    for (gate, card, manual, exits) in &rows {
+        csv.push_str(&format!(
+            "{},{},{},{}\n",
+            csv_escape(gate), card, manual, exits
+        ));
+    }
+    super::routes_audit::record(
+        &state.pool,
+        Some(user.id),
+        "report.daily_downloaded",
+        "site",
+        Some(site_id),
+        serde_json::json!({ "date": day, "gates": rows.len() }),
+    )
+    .await;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "text/csv; charset=utf-8".to_owned())],
+        [(axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"nigrani-{site_id}-{day}.csv\""))],
+        csv,
+    ))
 }
