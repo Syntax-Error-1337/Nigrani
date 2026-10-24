@@ -16,22 +16,32 @@
 
 ---
 
-Crowd-access command for protest sites: watch every gate, screen every
-person, and keep an unforgeable record of it all. Rust/axum RBAC API +
-Vite/React operations console. Phases 1–4 shipped plus hardening:
-provisioning, audit trail, retention, QR cards, demo reset, capture
-review, incident lifecycle + realtime, KYC duplicates + revocation, card
-lifecycle (expiry, per-print serials, reissue, offline CRL), login
-lockout, topology retirement, snapshot lifecycle.
+## 🎯 What is Nigrani?
 
-**Nigrani** (निगरानी — "vigilance") names the job, not the vendor: one
-shared watch over who enters, why, and with what proof — every crossing
-hashed into a tamper-evident audit chain, every card liveness-checkable,
-every decision reproducible in a courtroom pack.
+**Nigrani** (निगरानी — *"vigilance"*) is crowd-access command for protest
+sites: watch every gate, screen every person, and keep an unforgeable
+record of it all — every crossing hashed into a tamper-evident audit
+chain, every card liveness-checkable, every decision reproducible in a
+courtroom pack.
 
-Console styling follows the UX4G 2.0 "Saffron Green Navy" India theme: GoI
-portal palette, Noto Sans (Hindi + English), GIGW 3.0 accessibility
-patterns (skip link, A−/A/A+ text-size switcher, AA contrast).
+> The name names the **job**, not the vendor: one shared watch over who
+> enters, why, and with what proof.
+
+| | Capability | What you get |
+|---|---|---|
+| 🛂 | **Access control** | 5-role RBAC, gate topology (archive/retire), duty roster, per-post kiosk |
+| 🪪 | **Press cards** | QR cards with 90-day expiry, reissue, per-print serials, offline CRL |
+| 🔍 | **Screening (KYC)** | Reviewer queue, exact 409 block on live docs, fuzzy + photo-hash dup flags |
+| 🚨 | **Incidents** | Lifecycle + realtime fan-out, 72h SLA with lazy escalation, case merge, courtroom packs |
+| 📡 | **Live flow** | WebSocket event stream, occupancy trends (2–720 h), per-site surge alerts |
+| 🧾 | **Provable trust** | Hash-chained audit + verify endpoint, retention purge with audit slice, snapshot lifecycle |
+| ⚙️ | **Ops hardening** | Login lockout, cluster-wide rate quota, instant token revocation, demo reset, K8s + TLS + CI |
+
+## 🇮🇳 Theme
+
+Console follows the **UX4G 2.0 "Saffron Green Navy"** GoI portal palette —
+Noto Sans (Hindi + English), GIGW 3.0 accessibility patterns: skip link,
+A−/A/A+ text-size switcher, AA contrast throughout.
 
 ## 🚀 Quick start
 
