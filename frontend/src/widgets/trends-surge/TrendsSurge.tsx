@@ -84,15 +84,32 @@ export default function TrendsSurge({
           {trends.isLoading ? <p className="mt-2">Loading trend…</p> : null}
           {trends.isError ? <p role="alert" className="mt-2 text-deny">Trend would not load.</p> : null}
           {buckets.length > 0 ? (
-            <div className="mt-3 flex h-16 items-end gap-1" aria-label="Hourly crossings chart" role="img">
-              {buckets.map((b) => (
-                <div
-                  key={b.hour}
-                  className="flex-1 rounded-t bg-signal-deep"
-                  style={{ height: `${Math.round(((b.entries + b.exits) / peak) * 100)}%` }}
-                  title={`${fmtHour(b.hour)} — ${b.entries} in / ${b.exits} out`}
-                />
-              ))}
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="flex items-center gap-3">
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-signal-deep" /> in+out per hour</span>
+                  <span className="font-ledger">peak {peak}/h</span>
+                </span>
+                <span>{buckets.length} hourly buckets</span>
+              </div>
+              <div className="mt-3 flex h-40 items-end gap-[3px] border-b border-slate-200 pb-px" aria-label="Hourly crossings chart" role="img">
+                {buckets.map((b) => {
+                  const total = b.entries + b.exits
+                  const pct = Math.max(total === 0 ? 0 : 3, Math.round((total / peak) * 100))
+                  return (
+                    <div
+                      key={b.hour}
+                      className="group/bar relative flex-1 rounded-t-sm bg-gradient-to-t from-signal-deep/85 to-signal transition-[filter] hover:brightness-125"
+                      style={{ height: `${pct}%`, minWidth: 3 }}
+                      title={`${fmtHour(b.hour)} — ${b.entries} in / ${b.exits} out`}
+                    />
+                  )
+                })}
+              </div>
+              <div className="mt-1 flex justify-between font-ledger text-[10px] text-slate-400">
+                <span>{fmtHour(buckets[0].hour)}</span>
+                <span>{fmtHour(buckets[buckets.length - 1].hour)}</span>
+              </div>
             </div>
           ) : null}
           {buckets.length === 0 && !trends.isLoading && !trends.isError ? (
