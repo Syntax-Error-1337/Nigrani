@@ -15,17 +15,18 @@ async function login(page, username: string) {
 
 test('login lands on the dashboard with KPI cards', async ({ page }) => {
   await login(page, 'superadmin')
-  // SuperAdmin's panel heading + the KPI row (stats render, not a blank shell).
-  await expect(page.getByRole('heading', { name: /System ledger/i })).toBeVisible()
-  await expect(page.locator('section').filter({ hasText: /Crossings/i }).first()).toBeVisible()
+  // SuperAdmin lands on Overview: heading + the KPI row render (not a blank shell).
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
+  await expect(page.getByText('Crossings · 24h', { exact: true })).toBeVisible()
 })
 
 test('kiosk: manual entry records a crossing', async ({ page }) => {
   await login(page, 'gate')
-  // The kiosk card is present with its action buttons.
+  // The kiosk section carries the action buttons.
+  await page.getByRole('button', { name: 'Gate kiosk' }).click()
   const logManual = page.getByRole('button', { name: /log manual entry|मैनुअल प्रवेश दर्ज/i })
   await expect(logManual).toBeVisible()
-  // Hindi toggle flips the label, then back.
+  // Hindi toggle flips the operator strings, then back.
   const toggle = page.getByRole('button', { name: /^हिंदी$|^English$/ })
   await toggle.click()
   await expect(page.getByRole('button', { name: /log manual entry|मैनुअल प्रवेश दर्ज/i })).toBeVisible()
