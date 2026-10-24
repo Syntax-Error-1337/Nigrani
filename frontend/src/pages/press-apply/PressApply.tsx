@@ -1,3 +1,4 @@
+import { CheckCircle2, XCircle } from 'lucide-react'
 import { useState } from 'react'
 
 export default function PressApply() {
@@ -40,10 +41,13 @@ export default function PressApply() {
   if (status === 'done') {
     return (
       <main id="main-content" className="flex min-h-screen items-center justify-center bg-paper p-6">
-        <section className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-lg text-center">
-          <p className="font-semibold text-sm text-signal">NIGRANI</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Application received</h1>
-          <p className="mt-3">
+        <section className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-lg">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
+            <CheckCircle2 className="h-6 w-6 text-ok" />
+          </span>
+          <p className="mt-4 font-semibold text-sm text-signal">Nigrani</p>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Application received</h1>
+          <p className="mt-3 text-sm text-slate-600">
             Your press accreditation request is in the review queue. Bring your original
             document to the gate on the event day.
           </p>
@@ -52,13 +56,14 @@ export default function PressApply() {
     )
   }
 
-  const field = 'border border-slate-300 bg-white px-3 py-2 w-full'
+  const field = 'input w-full'
   return (
     <main id="main-content" className="flex min-h-screen flex-col items-center justify-center bg-paper p-6">
       <div className="tricolor-strip fixed inset-x-0 top-0 h-1.5" />
       <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-lg">
-        <p className="font-semibold text-sm text-signal">Nigrani</p>
+        <p className="font-semibold text-sm text-signal">Nigrani · निगरानी</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Press accreditation</h1>
+        <p className="mt-1 text-sm text-slate-500">प्रेस प्रवेश — media access request, reviewed by the verification desk.</p>
         <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm">
             Full name
@@ -126,14 +131,15 @@ export default function PressApply() {
             </span>
           </label>
           {message ? (
-            <p role="alert" className="border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+            <p role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
               {message}
             </p>
           ) : null}
           <button
             type="submit"
             disabled={status === 'sending'}
-            className="bg-signal px-4 py-2\.5 text-base font-semibold text-white hover:bg-signal-deep disabled:opacity-50"
+            className="btn btn-primary !py-2\.5 !text-base !font-semibold disabled:opacity-50"
           >
             {status === 'sending' ? 'Filing…' : 'File application'}
           </button>

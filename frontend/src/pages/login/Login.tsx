@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ShieldCheck, XCircle } from 'lucide-react'
 import { useSession, type SessionUser } from '@/shared/session'
 
 export default function Login() {
@@ -65,7 +66,8 @@ export default function Login() {
               'repeating-linear-gradient(90deg, #fff 0 1px, transparent 1px 48px), repeating-linear-gradient(0deg, #fff 0 1px, transparent 1px 64px)',
           }}
         />
-        <div className="relative max-w-sm">
+        <div className="relative max-w-md">
+          <div className="mb-6 h-1 w-16 rounded-full bg-gradient-to-r from-saffron via-white to-emerald-500" />
           <p className="text-4xl font-semibold leading-tight tracking-tight">
             Every crossing, accounted for.
           </p>
@@ -73,6 +75,17 @@ export default function Login() {
             Gate access management for protest sites — press vetting, live crossings, incidents
             and the audit chain, from one console.
           </p>
+          <div className="mt-8 rounded-xl border border-white/10 bg-white/5 p-4 font-ledger text-[11px] leading-relaxed text-white/70 backdrop-blur-sm">
+            <p className="flex items-center gap-1.5 text-white/90">
+              <ShieldCheck className="h-3.5 w-3.5 text-saffron" /> audit chain · live
+            </p>
+            <ul className="mt-2 space-y-1">
+              <li><span className="text-white/40">#612</span> gate.event <span className="text-saffron/80">a3f9…c21e</span></li>
+              <li><span className="text-white/40">#611</span> kyc.decided <span className="text-saffron/80">77b2…90d4</span></li>
+              <li><span className="text-white/40">#610</span> site.capacity_set <span className="text-saffron/80">f0c8…31aa</span></li>
+            </ul>
+            <p className="mt-2 text-white/40">verify → ok · 612 checked · anchored</p>
+          </div>
         </div>
       </section>
       <section className="flex w-full items-center md:w-1/2">
@@ -86,7 +99,7 @@ export default function Login() {
             <label className="flex flex-col gap-1 text-sm">
               Username
               <input
-                className="border border-slate-300 bg-white px-3 py-2.5 shadow-sm"
+                className="input"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
@@ -96,29 +109,41 @@ export default function Login() {
               Password
               <input
                 type="password"
-                className="border border-slate-300 bg-white px-3 py-2.5 shadow-sm"
+                className="input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
               />
             </label>
             {error ? (
-              <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+              <p role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 {error}
               </p>
             ) : null}
             <button
               type="submit"
               disabled={busy}
-              className="mt-1 bg-signal px-4 py-2.5 text-base font-semibold text-white hover:bg-signal-deep disabled:opacity-50"
+              className="btn btn-primary mt-1 !py-2.5 !text-base !font-semibold disabled:opacity-50"
             >
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
-          <p className="mt-6 rounded-md border border-slate-200 bg-white px-3 py-2 font-ledger text-xs text-slate-500">
-            Seeded sign-ins: superadmin · commander · gate · verifier · analyst (password:
-            password)
-          </p>
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-3">
+            <p className="font-ledger text-[10px] uppercase tracking-wide text-slate-400">Demo callsigns · password: password</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {['superadmin', 'commander', 'gate', 'verifier', 'analyst'].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => { setUsername(c); setPassword('password') }}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 font-ledger text-[11px] text-slate-600 transition-colors hover:border-signal hover:text-signal"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
     </main>
