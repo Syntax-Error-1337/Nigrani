@@ -17,6 +17,8 @@ export default defineConfig({
       '/events': { target: 'ws://127.0.0.1:8080', ws: true },
       '/audit': 'http://127.0.0.1:8080',
       '/admin': 'http://127.0.0.1:8080',
+      '/my': 'http://127.0.0.1:8080',
+      '/stats': 'http://127.0.0.1:8080',
     },
   },
 })

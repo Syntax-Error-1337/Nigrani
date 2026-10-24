@@ -38,10 +38,10 @@ export default function PressApply() {
 
   if (status === 'done') {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-paper p-6">
-        <section className="max-w-md border-2 border-ink bg-white p-8">
-          <p className="font-ledger text-xs tracking-widest text-signal">NIGRANI</p>
-          <h1 className="mt-2 font-display text-3xl uppercase">Application received</h1>
+      <main id="main-content" className="flex min-h-screen items-center justify-center bg-paper p-6">
+        <section className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-lg text-center">
+          <p className="font-semibold text-sm text-signal">NIGRANI</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Application received</h1>
           <p className="mt-3">
             Your press accreditation request is in the review queue. Bring your original
             document to the gate on the event day.
@@ -51,12 +51,13 @@ export default function PressApply() {
     )
   }
 
-  const field = 'border border-ink px-3 py-2 w-full'
+  const field = 'border border-slate-300 bg-white px-3 py-2 w-full'
   return (
-    <main className="flex min-h-screen items-center justify-center bg-paper p-6">
-      <section className="w-full max-w-md border-2 border-ink bg-white p-8 shadow-[6px_6px_0_0_var(--color-ink)]">
-        <p className="font-ledger text-xs tracking-widest text-signal">NIGRANI</p>
-        <h1 className="mt-2 font-display text-3xl uppercase">Press accreditation</h1>
+    <main id="main-content" className="flex min-h-screen flex-col items-center justify-center bg-paper p-6">
+      <div className="tricolor-strip fixed inset-x-0 top-0 h-1.5" />
+      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-lg">
+        <p className="font-semibold text-sm text-signal">Nigrani</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Press accreditation</h1>
         <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm">
             Full name
@@ -97,14 +98,14 @@ export default function PressApply() {
             />
           </label>
           {message ? (
-            <p role="alert" className="border border-deny bg-red-50 px-3 py-2 text-sm text-deny">
+            <p role="alert" className="border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
               {message}
             </p>
           ) : null}
           <button
             type="submit"
             disabled={status === 'sending'}
-            className="bg-ink px-4 py-2 font-display text-lg uppercase text-paper disabled:opacity-50"
+            className="bg-signal px-4 py-2\.5 text-base font-semibold text-white hover:bg-signal-deep disabled:opacity-50"
           >
             {status === 'sending' ? 'Filing…' : 'File application'}
           </button>

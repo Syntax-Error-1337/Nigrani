@@ -49,46 +49,77 @@ export default function Login() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-paper p-6">
-      <section className="w-full max-w-sm border-2 border-ink bg-white p-8 shadow-[6px_6px_0_0_var(--color-ink)]">
-        <p className="font-ledger text-xs tracking-widest text-signal">NIGRANI</p>
-        <h1 className="mt-2 font-display text-4xl uppercase">Checkpoint sign in</h1>
-        <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
-          <label className="flex flex-col gap-1 text-sm">
-            Callsign (username)
-            <input
-              className="border border-ink px-3 py-2"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Passphrase
-            <input
-              type="password"
-              className="border border-ink px-3 py-2"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-            />
-          </label>
-          {error ? (
-            <p role="alert" className="border border-deny bg-red-50 px-3 py-2 text-sm text-deny">
-              {error}
-            </p>
-          ) : null}
-          <button
-            type="submit"
-            disabled={busy}
-            className="bg-ink px-4 py-2 font-display text-lg uppercase tracking-wide text-paper disabled:opacity-50"
-          >
-            {busy ? 'Verifying…' : 'Enter checkpoint'}
-          </button>
-        </form>
-        <p className="mt-4 font-ledger text-xs text-neutral-500">
-          Seeded sign-ins: superadmin · commander · gate · verifier · analyst (password: password)
-        </p>
+    <main id="main-content" className="flex min-h-screen bg-paper p-6">
+      <section
+        className="relative hidden w-1/2 flex-col justify-between overflow-hidden rounded-2xl bg-navy p-10 text-white md:flex"
+        aria-hidden="true"
+      >
+        <div className="font-semibold text-lg tracking-tight">
+          <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-saffron" /> Nigrani
+          <span className="ml-2 text-xs font-normal text-white/60">सेंटिनेल-गार्ड</span>
+        </div>
+        <div
+          className="absolute inset-0 opacity-[0.14]"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(90deg, #fff 0 1px, transparent 1px 48px), repeating-linear-gradient(0deg, #fff 0 1px, transparent 1px 64px)',
+          }}
+        />
+        <div className="relative max-w-sm">
+          <p className="text-4xl font-semibold leading-tight tracking-tight">
+            Every crossing, accounted for.
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-slate-300">
+            Gate access management for protest sites — press vetting, live crossings, incidents
+            and the audit chain, from one console.
+          </p>
+        </div>
+      </section>
+      <section className="flex w-full items-center md:w-1/2">
+        <div className="mx-auto w-full max-w-sm">
+          <p className="font-semibold text-lg tracking-tight md:hidden">
+            <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full bg-saffron" /> Nigrani
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Sign in</h1>
+          <p className="mt-1 text-sm text-slate-500">Use your operations callsign.</p>
+          <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
+            <label className="flex flex-col gap-1 text-sm">
+              Username
+              <input
+                className="border border-slate-300 bg-white px-3 py-2.5 shadow-sm"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              Password
+              <input
+                type="password"
+                className="border border-slate-300 bg-white px-3 py-2.5 shadow-sm"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </label>
+            {error ? (
+              <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+                {error}
+              </p>
+            ) : null}
+            <button
+              type="submit"
+              disabled={busy}
+              className="mt-1 bg-signal px-4 py-2.5 text-base font-semibold text-white hover:bg-signal-deep disabled:opacity-50"
+            >
+              {busy ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+          <p className="mt-6 rounded-md border border-slate-200 bg-white px-3 py-2 font-ledger text-xs text-slate-500">
+            Seeded sign-ins: superadmin · commander · gate · verifier · analyst (password:
+            password)
+          </p>
+        </div>
       </section>
     </main>
   )

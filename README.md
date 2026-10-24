@@ -6,6 +6,10 @@ retention, QR cards, demo reset, capture review, incident lifecycle +
 realtime, KYC duplicates + revocation, login lockout, topology retirement,
 snapshot lifecycle.
 
+Console styling follows the UX4G 2.0 "Saffron Green Navy" India theme: GoI
+portal palette, Noto Sans (Hindi + English), GIGW 3.0 accessibility
+patterns (skip link, A−/A/A+ text-size switcher, AA contrast).
+
 ## Quick start
 
 ```sh
@@ -26,6 +30,7 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 ## Auth & accounts
 
 - `GET /health` → `ok`
+- `GET /stats` (needs `sites:read`) → `{sites, gates, crossings_24h, pending_kyc, open_incidents}` — the console's dashboard overview row
 - `POST /auth/login` `{username, password}` → access JWT + rotating refresh
   replaying a revoked token burns the whole session family (`401 reused`)
 - `POST /auth/logout` / `/auth/logout/all` → revoke one / all sessions
@@ -45,6 +50,14 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 - `POST /sites/:id/archive/archive|restore` (needs `sites:write`);
   `POST /sites/:sid/gates/:gid/archive/archive|restore` (needs
   `gates:write`)
+- Gate duty: `POST /sites/:sid/gates/:gid/duty` `{user_id|null}` (needs
+  `gates:write`) — assigns the gate's duty officer (active user holding
+  `entries:write`, else `400`; unknown → `404`; `null` clears). Gate
+  responses carry `duty_officer`/`duty_username`. `GET /my/duty` → the
+  caller's own duty roster (`gate_id, gate_name, direction, site_id,
+  site_name`). VerificationOfficers hold `entries:write` and can staff
+  gates; the console's Gate duty panel lists assigned gates and mounts the
+  kiosk for the selected post
 - Archiving a site with live gates → `409`; crossings/incidents/creates
   on archived rows → `410 Gone`; lists hide archived by default
 

@@ -6,12 +6,32 @@ interface Policy {
   retain_days: number
 }
 
-export default function RetentionPanel() {
+export default function RetentionPanel({ siteId }: { siteId: string | null }) {
   const [policies, setPolicies] = useState<Policy[] | null>(null)
   const [report, setReport] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [orphans, setOrphans] = useState<{ count: number; referenced: number; sample: string[] } | null>(null)
   const [collected, setCollected] = useState<number | null>(null)
+  async function exportSite() {
+    setNotice(null)
+    setReport(null)
+    if (siteId === null) {
+      setNotice('Select a site scope first')
+      return
+    }
+    const res = await apiFetch(`/sites/${siteId}/export`)
+    if (!res.ok) {
+      setNotice(`Export refused (${res.status})`)
+      return
+    }
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `site-${siteId}-export.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+    setReport('Site export downloaded')
+  }
   async function load() {
     setNotice(null)
     const res = await apiFetch('/admin/retention/policies')
@@ -118,21 +138,24 @@ export default function RetentionPanel() {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="font-display text-2xl uppercase">Retention</h2>
-        <button onClick={load} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
+        <h2 className="text-2xl font-semibold tracking-tight">Retention</h2>
+        <button onClick={load} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
           Load policies
         </button>
-        <button onClick={purge} className="border border-deny px-3 py-1 font-ledger text-xs uppercase text-deny">
+        <button onClick={purge} className="border border-rose-200 bg-white px-3 py-1 text-xs font-medium text-deny hover:bg-rose-50">
           Run purge
         </button>
-        <button onClick={preview} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
+        <button onClick={preview} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
           Preview purge
+        </button>
+        <button onClick={exportSite} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+          Export active site
         </button>
       </div>
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
       {report ? <p className="mt-2 font-ledger text-xs">{report}</p> : null}
       {(policies ?? []).length > 0 ? (
-        <table className="mt-2 w-full border-2 border-ink bg-white font-ledger text-xs">
+        <table className="mt-2 w-full border border-slate-200 rounded-xl bg-white shadow-sm font-ledger text-xs">
           <thead>
             <tr className="text-left uppercase">
               <th className="px-3 py-1">Entity</th>
@@ -147,13 +170,13 @@ export default function RetentionPanel() {
           </tbody>
         </table>
       ) : null}
-      <div className="mt-4 border-t-2 border-ink pt-3">
+      <div className="mt-4 border-t border-slate-200 pt-3">
         <div className="flex items-baseline gap-3">
-          <h3 className="font-display text-lg uppercase">Snapshot orphans</h3>
-          <button onClick={checkOrphans} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
+          <h3 className="text-base font-semibold tracking-tight">Snapshot orphans</h3>
+          <button onClick={checkOrphans} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
             Check orphans
           </button>
-          <button onClick={collectOrphans} className="border border-deny px-3 py-1 font-ledger text-xs uppercase text-deny">
+          <button onClick={collectOrphans} className="border border-rose-200 bg-white px-3 py-1 text-xs font-medium text-deny hover:bg-rose-50">
             Collect orphans
           </button>
         </div>
@@ -193,13 +216,13 @@ function PolicyRow({
           type="number"
           min={0}
           max={3650}
-          className="w-24 border border-ink px-2 py-1"
+          className="border border-slate-300 bg-white px-2 py-1 text-sm w-24"
           value={days}
           onChange={(e) => setDays(Number(e.target.value))}
         />
       </td>
       <td className="px-3 py-1">
-        <button onClick={() => onSave(policy.entity, days)} className="border border-ink px-2 py-1 uppercase">
+        <button onClick={() => onSave(policy.entity, days)} className="border-slate-300 bg-white px-2 py-1 text-xs font-medium align-middle hover:border-slate-400">
           Save
         </button>
       </td>

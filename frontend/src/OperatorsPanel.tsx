@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { apiFetch } from './session'
+import { apiFetch, STORAGE_KEY, useSession } from './session'
 
 interface Operator {
   id: string
@@ -69,27 +69,27 @@ export default function OperatorsPanel() {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="font-display text-2xl uppercase">Operators</h2>
-        <button onClick={load} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
+        <h2 className="text-2xl font-semibold tracking-tight">Operators</h2>
+        <button onClick={load} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
           Load operators
         </button>
       </div>
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
-      <ol className="mt-3 divide-y divide-neutral-200 border-y-2 border-ink bg-white">
+      <ol className="mt-3 divide-y divide-slate-200 border border-slate-200 bg-white rounded-xl shadow-sm">
         {(rows ?? []).map((op) => (
           <li key={op.id} className="flex items-baseline gap-3 px-4 py-2 font-ledger text-xs">
             <span className={op.active ? '' : 'text-neutral-400 line-through'}>{op.username}</span>
             <span className="uppercase">{op.role}</span>
             {op.locked_until ? (
-              <span className="border border-deny bg-red-50 px-1 uppercase text-deny" title={`Locked until ${op.locked_until} · ${op.failed_logins} strikes`}>
+              <span className="border border-rose-200 bg-rose-50 px-1 text-xs font-medium text-deny" title={`Locked until ${op.locked_until} · ${op.failed_logins} strikes`}>
                 locked
               </span>
             ) : null}
-            <button onClick={() => flip(op)} className="ml-auto border border-ink px-2 py-1 uppercase">
+            <button onClick={() => flip(op)} className="ml-auto border-slate-300 bg-white px-2 py-1 text-xs font-medium align-middle hover:border-slate-400">
               {op.active ? 'Deactivate' : 'Reactivate'}
             </button>
             {op.locked_until ? (
-              <button onClick={() => unlock(op)} className="border border-ink bg-ink px-2 py-1 uppercase text-paper">
+              <button onClick={() => unlock(op)} className="border-transparent bg-ink px-2 py-1 text-xs font-medium text-white hover:border-slate-700">
                 Unlock
               </button>
             ) : null}
@@ -100,7 +100,7 @@ export default function OperatorsPanel() {
         <label className="flex flex-col gap-1 text-sm">
           Username (a-z0-9_, 3–32)
           <input
-            className="border border-ink px-3 py-2"
+            className="border border-slate-300 bg-white px-3 py-2"
             value={form.username}
             onChange={(e) => setForm({ ...form, username: e.target.value })}
           />
@@ -109,7 +109,7 @@ export default function OperatorsPanel() {
           Password (12+ chars)
           <input
             type="password"
-            className="border border-ink px-3 py-2"
+            className="border border-slate-300 bg-white px-3 py-2"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             autoComplete="new-password"
@@ -118,7 +118,7 @@ export default function OperatorsPanel() {
         <label className="flex flex-col gap-1 text-sm">
           Role
           <select
-            className="border border-ink px-3 py-2"
+            className="border border-slate-300 bg-white px-3 py-2"
             value={form.role}
             onChange={(e) => setForm({ ...form, role: e.target.value })}
           >
@@ -129,7 +129,7 @@ export default function OperatorsPanel() {
             <option>ForensicAnalyst</option>
           </select>
         </label>
-        <button type="submit" className="bg-ink px-4 py-2 text-sm uppercase text-paper">
+        <button type="submit" className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
           Provision
         </button>
       </form>
@@ -158,15 +158,27 @@ export function PasswordDialog() {
     setMsg('Password changed — other sessions signed out')
   }
 
+  async function signOutAll() {
+    const res = await apiFetch('/auth/logout/all', { method: 'POST' })
+    if (!res.ok) {
+      setMsg(`Sign-out refused (${res.status})`)
+      return
+    }
+    // Server already revoked every session; wipe local copy without another
+    // (now-dead) /auth/logout call.
+    localStorage.removeItem(STORAGE_KEY)
+    useSession.setState({ accessToken: null, refreshToken: null, user: null })
+  }
+
   return (
     <section className="mt-8">
-      <h2 className="font-display text-2xl uppercase">Change password</h2>
+      <h2 className="text-2xl font-semibold tracking-tight">Change password</h2>
       <form onSubmit={submit} className="mt-2 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
           Current
           <input
             type="password"
-            className="border border-ink px-3 py-2"
+            className="border border-slate-300 bg-white px-3 py-2"
             value={current}
             onChange={(e) => setCurrent(e.target.value)}
             autoComplete="current-password"
@@ -176,14 +188,21 @@ export function PasswordDialog() {
           New (12+ chars)
           <input
             type="password"
-            className="border border-ink px-3 py-2"
+            className="border border-slate-300 bg-white px-3 py-2"
             value={next}
             onChange={(e) => setNext(e.target.value)}
             autoComplete="new-password"
           />
         </label>
-        <button type="submit" className="bg-ink px-4 py-2 text-sm uppercase text-paper">
+        <button type="submit" className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
           Change
+        </button>
+        <button
+          type="button"
+          onClick={signOutAll}
+          className="border border-slate-300 bg-white px-4 py-2 text-sm font-medium align-middle hover:border-slate-400"
+        >
+          Sign out all sessions
         </button>
       </form>
       {msg ? <p className="mt-2 text-sm">{msg}</p> : null}

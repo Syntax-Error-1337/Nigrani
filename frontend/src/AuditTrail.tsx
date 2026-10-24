@@ -65,25 +65,25 @@ function detailLines(detail: unknown): [string, string][] {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="font-display text-2xl uppercase">Audit trail</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">Audit trail</h2>
         {global === true ? (
           <button
             onClick={() => setScope(scope === 'all' ? 'site' : 'all')}
-            className="border border-ink px-3 py-1 font-ledger text-xs uppercase"
+            className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400"
           >
             {scope === 'all' ? 'Site scope' : 'Global scope'}
           </button>
         ) : null}
-        <button onClick={load} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
+        <button onClick={load} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
           Load trail
         </button>
-        <button onClick={verify} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
+        <button onClick={verify} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
           Verify chain
         </button>
       </div>
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
       {verdict ? <p className="mt-2 font-ledger text-xs">{verdict}</p> : null}
-      <ol className="mt-3 divide-y divide-neutral-200 border-y-2 border-ink bg-white">
+      <ol className="mt-3 divide-y divide-slate-200 border border-slate-200 bg-white rounded-xl shadow-sm">
         {(rows ?? []).map((e) => {
           const lines = detailLines(e.detail)
           return (

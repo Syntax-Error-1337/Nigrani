@@ -16,6 +16,8 @@ export interface Gate {
   direction: 'entry' | 'exit' | 'both'
   created_at: string
   archived_at: string | null
+  duty_officer?: string | null
+  duty_username?: string | null
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -37,6 +39,22 @@ function errorMessage(body: unknown, fallback: string): string {
 
 // Parallel top-level fetches (no waterfall): sites list loads alongside gates
 // once a site is selected; see GatesPanel for the dependent query.
+export interface Stats {
+  sites: number
+  gates: number
+  crossings_24h: number
+  pending_kyc: number
+  open_incidents: number
+}
+
+export function useStats() {
+  return useQuery({
+    queryKey: ['stats'],
+    queryFn: () => getJson<Stats>('/stats'),
+    refetchInterval: 30_000,
+  })
+}
+
 export function useSites(q: string, showArchived = false) {
   const params = new URLSearchParams()
   if (q) params.set('q', q)

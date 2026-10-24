@@ -71,6 +71,7 @@ export function useEventStream() {
         } else {
           queryClient.invalidateQueries({ queryKey: ['sites'] })
           queryClient.invalidateQueries({ queryKey: ['gates'] })
+          queryClient.invalidateQueries({ queryKey: ['my-duty'] })
         }
       }
       socket.onclose = () => {

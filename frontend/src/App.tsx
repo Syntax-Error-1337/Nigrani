@@ -7,6 +7,16 @@ import Login from './Login'
 import PressApply from './PressApply'
 import { refreshNow, useSession } from './session'
 const queryClient = new QueryClient()
+// Network blips (API restart, laptop sleep): retry those a few times, and
+// refetch on window focus so a dropped API connection heals itself without
+// a manual reload. HTTP errors (401/403/404/409...) must NOT retry — they
+// would hammer the server and mask the real status.
+queryClient.setDefaultOptions({
+  queries: {
+    retry: (failureCount, error) => failureCount < 3 && error instanceof TypeError,
+    refetchOnWindowFocus: true,
+  },
+})
 
 function LiveUpdates() {
   useEventStream()
@@ -32,6 +42,9 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <a href="#main-content" className="skip-link">
+          Skip to main content
+        </a>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/press" element={<PressApply />} />

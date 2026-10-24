@@ -21,7 +21,7 @@ interface SessionState {
   logout: () => void
 }
 
-const STORAGE_KEY = 'nigrani/session/v1'
+export const STORAGE_KEY = 'nigrani/session/v1'
 
 function loadInitial(): Pick<SessionState, 'accessToken' | 'refreshToken' | 'user'> {
   try {

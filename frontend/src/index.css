@@ -1,27 +1,93 @@
 @import "tailwindcss";
 
 /*
- * Nigrani operations-console theme.
- * Subject: law-enforcement / gate-operations console. Visual anchor: the
- * checkpoint ledger — tabular numerals, stencil-adjacent condensed headings,
- * signal-amber accents on deep slate. One bold move: oversized condensed
- * gate numerals as section anchors; everything else stays quiet.
+ * Nigrani operations-console theme — UX4G 2.0 ("Saffron Green
+ * Navy") India-focused theme: GoI portal palette, Noto Sans base with
+ * system-ui fallback (Hindi + English), GIGW 3.0 accessibility patterns
+ * (skip link, font-size switcher, AA contrast throughout).
+ * Tokens only — every component maps through these names.
  */
 @theme {
-  --font-display: "Arial Narrow", "Helvetica Neue Condensed", Impact, sans-serif;
-  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-display: "Noto Sans", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Noto Sans", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-ledger: ui-monospace, "SF Mono", Consolas, monospace;
 
-  --color-ink: #10151c;
-  --color-slate-panel: #1a2230;
-  --color-paper: #f4f2ea;
-  --color-signal: #d98a1f;
-  --color-ok: #2e7d4f;
-  --color-deny: #b3352b;
+  --color-ink: #333333;
+  --color-slate-panel: #26324a;
+  --color-paper: #f5f6f8;
+  --color-signal: #0066cc;
+  --color-signal-deep: #0052a3;
+  --color-ok: #0e6f13;
+  --color-deny: #b3251e;
+  --color-navy: #14395d;
+  --color-saffron: #ff9933;
+  --color-saffron-ink: #8a5200;
+  --color-saffron-mist: #fff1de;
 }
 
 body {
   font-family: var(--font-body);
   background: var(--color-paper);
   color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer base {
+  button {
+    border-radius: 8px;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+      opacity 0.15s ease;
+  }
+  input,
+  select,
+  textarea {
+    border-radius: 6px;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  button:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+}
+
+/* GoI identity strip: saffron → white → green under the dark chrome. */
+.tricolor-strip {
+  background: linear-gradient(
+    90deg,
+    var(--color-saffron) 0 33%,
+    #ffffff 33% 66%,
+    #1aa64a 66% 100%
+  );
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 50;
+  background: var(--color-signal);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 0 0 8px 8px;
+}
+.skip-link:focus-visible {
+  left: 0.5rem;
+}
+
+.live-dot {
+  animation: live-pulse 2s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-signal) 18%, transparent);
 }

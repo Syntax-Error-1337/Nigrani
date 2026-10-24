@@ -92,9 +92,9 @@ export default function ReviewDesk() {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="font-display text-2xl uppercase">Press review desk</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">Press review desk</h2>
         <input
-          className="border border-ink px-2 py-1 text-sm"
+          className="border border-slate-300 bg-white px-2 py-1 text-sm"
           placeholder="Search applicants…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -105,8 +105,8 @@ export default function ReviewDesk() {
           <button
             key={s}
             onClick={() => setTab(s)}
-            className={`border-2 px-3 py-1 font-ledger text-xs uppercase ${
-              tab === s ? 'border-signal bg-white' : 'border-ink bg-white'
+            className={`rounded-full px-3 py-1 text-xs font-medium ${
+              tab === s ? 'bg-navy text-white' : 'bg-white border border-slate-300 text-slate-600 hover:border-slate-400'
             }`}
           >
             {s}
@@ -114,7 +114,7 @@ export default function ReviewDesk() {
         ))}
       </div>
       {notice ? (
-        <p role="alert" className="mt-3 border border-deny bg-red-50 px-3 py-2 text-sm text-deny">
+        <p role="alert" className="mt-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
           {notice}
         </p>
       ) : null}
@@ -123,15 +123,15 @@ export default function ReviewDesk() {
       {!queue.isLoading && rows.length === 0 ? (
         <p className="mt-3">No {tab} applications.</p>
       ) : null}
-      <ol className="mt-3 divide-y-2 divide-ink border-y-2 border-ink bg-white">
+      <ol className="mt-3 divide-y divide-slate-200 border border-slate-200 bg-white rounded-xl shadow-sm">
         {rows.map((app) => (
           <li key={app.id} className="px-4 py-3">
             <div className="flex flex-wrap items-baseline gap-3">
-              <span className="font-display text-xl uppercase">{app.full_name}</span>
+              <span className="text-lg font-semibold tracking-tight">{app.full_name}</span>
               {app.photo_url ? (
                 <button
                   onClick={() => openPhoto(app)}
-                  className="border border-ink px-1 font-ledger text-xs uppercase"
+                  className="border-slate-300 bg-white px-1 text-xs font-medium"
                 >
                   Photo
                 </button>
@@ -143,12 +143,12 @@ export default function ReviewDesk() {
                 <span className="font-ledger text-xs">note: {app.decision_note}</span>
               ) : null}
               {(app.prior_decisions ?? 0) > 0 ? (
-                <span className="border border-signal bg-yellow-50 px-1 font-ledger text-xs uppercase" title="Prior decided applications share this document">
+                <span className="border border-saffron bg-saffron-mist px-1 text-xs font-medium text-saffron-ink" title="Prior decided applications share this document">
                   repeat ×{app.prior_decisions}
                 </span>
               ) : null}
               {app.card_revoked_at ? (
-                <span className="border border-deny bg-red-50 px-1 font-ledger text-xs uppercase text-deny" title={`Card revoked ${app.card_revoked_at}`}>
+                <span className="border border-rose-200 bg-rose-50 px-1 text-xs font-medium text-deny" title={`Card revoked ${app.card_revoked_at}`}>
                   revoked
                 </span>
               ) : null}
@@ -156,20 +156,20 @@ export default function ReviewDesk() {
             {tab === 'pending' ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input
-                  className="border border-ink px-2 py-1 text-sm"
+                  className="min-w-56 flex-1 border border-slate-300 bg-white px-2 py-1 text-sm"
                   placeholder="Reason (required for rejection)"
                   value={note[app.id] ?? ''}
                   onChange={(e) => setNote({ ...note, [app.id]: e.target.value })}
                 />
                 <button
                   onClick={() => decide(app, 'approved')}
-                  className="bg-ok px-3 py-1 text-sm uppercase text-white"
+                  className="bg-ok px-3 py-1 text-sm font-medium text-white hover:bg-emerald-700"
                 >
                   Approve
                 </button>
                 <button
                   onClick={() => decide(app, 'rejected')}
-                  className="bg-deny px-3 py-1 text-sm uppercase text-white"
+                  className="bg-deny px-3 py-1 text-sm font-medium text-white hover:bg-rose-700"
                 >
                   Reject
                 </button>
@@ -180,7 +180,7 @@ export default function ReviewDesk() {
                 {!app.card_revoked_at ? (
                   <button
                     onClick={() => issueCard(app)}
-                    className="border border-ink px-3 py-1 font-ledger text-xs uppercase"
+                    className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400"
                   >
                     Issue press card
                   </button>
@@ -188,7 +188,7 @@ export default function ReviewDesk() {
                 {!app.card_revoked_at ? (
                   <button
                     onClick={() => revoke(app)}
-                    className="bg-deny px-3 py-1 font-ledger text-xs uppercase text-white"
+                    className="bg-deny px-3 py-1 text-xs font-medium text-white hover:bg-rose-700"
                   >
                     Revoke card
                   </button>
@@ -199,21 +199,21 @@ export default function ReviewDesk() {
         ))}
       </ol>
       {photo ? (
-        <div className="mt-4 border-2 border-signal bg-white p-2">
-          <p className="font-display text-lg uppercase">Photo — {photo.name}</p>
+        <div className="mt-4 border border-signal bg-white p-2">
+          <p className="text-base font-semibold tracking-tight">Photo — {photo.name}</p>
           <img src={photo.url} alt={`Applicant photo for ${photo.name}`} className="mt-1 max-h-64 w-auto" />
-          <button onClick={() => setPhoto(null)} className="mt-1 border border-ink px-2 py-1 font-ledger text-xs uppercase">
+          <button onClick={() => setPhoto(null)} className="mt-1 border border-slate-300 bg-white px-2 py-1 text-xs font-medium hover:border-slate-400">
             Close
           </button>
         </div>
       ) : null}
       {card ? (
-        <div className="mt-4 flex gap-4 border-2 border-signal bg-white p-4">
+        <div className="mt-4 flex gap-4 border border-signal bg-white p-4">
           {card.qrUrl ? (
-            <img src={card.qrUrl} alt={`Press card QR for ${card.name}`} className="h-48 w-48 border border-ink" />
+            <img src={card.qrUrl} alt={`Press card QR for ${card.name}`} className="h-48 w-48 rounded-lg border border-slate-200" />
           ) : null}
           <div>
-            <p className="font-display text-lg uppercase">Press card — {card.name}</p>
+            <p className="text-base font-semibold tracking-tight">Press card — {card.name}</p>
             <p className="mt-1 font-ledger text-xs break-all">{card.payload}</p>
             <p className="mt-2 text-sm">
               Scan the QR at the gate; the JSON fallback covers damaged prints.

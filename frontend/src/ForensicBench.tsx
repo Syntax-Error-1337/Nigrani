@@ -248,9 +248,9 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
 
   return (
     <section className="mt-8">
-      <h2 className="font-display text-2xl uppercase">Forensic bench</h2>
+      <h2 className="text-2xl font-semibold tracking-tight">Forensic bench</h2>
       {notice ? (
-        <p role="alert" className="mt-3 border border-deny bg-red-50 px-3 py-2 text-sm text-deny">
+        <p role="alert" className="mt-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
           {notice}
         </p>
       ) : null}
@@ -258,19 +258,19 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
         <p className="mt-3 border border-ok bg-green-50 px-3 py-2 text-sm text-ok">{ok}</p>
       ) : null}
       <div className="mt-3 grid gap-4 md:grid-cols-2">
-        <div className="border-2 border-ink bg-white p-4">
-          <h3 className="font-display text-lg uppercase">Face search</h3>
+        <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
+          <h3 className="text-base font-semibold tracking-tight">Face search</h3>
           <label className="mt-2 flex flex-col gap-1 text-sm">
             Suspect embedding (512 floats)
             <textarea
-              className="border border-ink px-3 py-2 font-ledger text-xs"
+              className="border border-slate-300 bg-white px-3 py-2 font-ledger text-xs"
               rows={4}
               value={vectorText}
               onChange={(e) => setVectorText(e.target.value)}
               placeholder="0.11, -0.02, … (512 numbers)"
             />
           </label>
-          <button onClick={search} className="mt-2 bg-ink px-4 py-2 text-sm uppercase text-paper">
+          <button onClick={search} className="mt-2 bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
             Search attendees
           </button>
           {hits !== null && hits.length === 0 ? (
@@ -285,26 +285,26 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
             ))}
           </ol>
         </div>
-        <div className="border-2 border-ink bg-white p-4">
-          <h3 className="font-display text-lg uppercase">Incidents</h3>
+        <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
+          <h3 className="text-base font-semibold tracking-tight">Incidents</h3>
           <form onSubmit={fileIncident} className="mt-2 flex flex-col gap-2">
             <input
-              className="border border-ink px-3 py-2 text-sm"
+              className="border border-slate-300 bg-white px-3 py-2 text-sm"
               placeholder="Title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
             <input
-              className="border border-ink px-3 py-2 text-sm"
+              className="border border-slate-300 bg-white px-3 py-2 text-sm"
               placeholder="Description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
-            <button type="submit" className="bg-ink px-4 py-2 text-sm uppercase text-paper">
+            <button type="submit" className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
               File incident
             </button>
           </form>
-          <button onClick={loadIncidents} className="mt-2 border border-ink px-3 py-1 font-ledger text-xs uppercase">
+          <button onClick={loadIncidents} className="mt-2 border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
             Refresh incidents
           </button>
           <div className="mt-2 flex flex-wrap gap-1">
@@ -315,14 +315,14 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                   setStatusTab(s)
                   setNotice(null)
                 }}
-                className={`border px-2 py-0.5 font-ledger text-[11px] uppercase ${statusTab === s ? 'border-ink bg-ink text-paper' : 'border-ink'}`}
+                className={`rounded-full px-2 5 py-0.5 text-[11px] font-medium ${statusTab === s ? 'bg-navy text-white' : 'border border-slate-300 text-slate-600'}`}
               >
                 {s}
               </button>
             ))}
             <button
               onClick={() => setMineOnly((v) => !v)}
-              className={`border px-2 py-0.5 font-ledger text-[11px] uppercase ${mineOnly ? 'border-ink bg-ink text-paper' : 'border-ink'}`}
+              className={`border px-2 py-0.5 font-ledger text-[11px] uppercase ${mineOnly ? 'bg-navy text-white' : 'border border-slate-300 text-slate-600'}`}
             >
               Mine
             </button>
@@ -330,23 +330,23 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
           <ol className="mt-2 divide-y divide-neutral-200">
             {(incidents ?? []).map((i) => (
               <li key={i.id} className="py-2 text-sm">
-                <span className="font-display uppercase">{i.title}</span>{' '}
-                <span className="border border-ink px-1 font-ledger text-[11px] uppercase">{i.status}</span>
+                <span className="font-semibold">{i.title}</span>{' '}
+                <span className="border-slate-200 border bg-white px-1 text-[11px] font-medium">{i.status}</span>
                 {i.assigned_to ? <span className="font-ledger text-xs"> → {i.assigned_to.slice(0, 8)}</span> : null}
                 {i.description ? <span className="text-neutral-500"> — {i.description}</span> : null}
                 <div className="mt-1 flex flex-wrap gap-1">
                   {(NEXT[i.status] ?? []).map((s) => (
-                    <button key={s} onClick={() => transition(i.id, s)} className="border border-ink px-2 py-0.5 font-ledger text-[11px] uppercase">
+                    <button key={s} onClick={() => transition(i.id, s)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
                       → {s}
                     </button>
                   ))}
-                  <button onClick={() => loadLinks(i.id)} className="border border-ink px-2 py-0.5 font-ledger text-[11px] uppercase">
+                  <button onClick={() => loadLinks(i.id)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
                     Links ({(links[i.id] ?? []).length})
                   </button>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1">
                   <select
-                    className="border border-ink px-2 py-0.5 font-ledger text-xs"
+                    className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"
                     value={assignee[i.id] ?? ''}
                     onChange={(e) => setAssignee((p) => ({ ...p, [i.id]: e.target.value }))}
                     onFocus={() => {
@@ -360,7 +360,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                       </option>
                     ))}
                   </select>
-                  <button onClick={() => assign(i.id)} className="bg-ink px-2 py-0.5 font-ledger text-[11px] uppercase text-paper">
+                  <button onClick={() => assign(i.id)} className="bg-signal px-2 py-0.5 text-[11px] font-medium text-white hover:bg-signal-deep">
                     Assign
                   </button>
                 </div>
@@ -373,7 +373,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                 ) : null}
                 <div className="mt-1 flex flex-wrap gap-1">
                   <select
-                    className="border border-ink px-1 py-0.5 font-ledger text-xs"
+                    className="border border-slate-300 bg-white px-1 py-0.5 font-ledger text-xs hover:border-slate-400"
                     value={linkKind[i.id] ?? 'note'}
                     onChange={(e) => setLinkKind((p) => ({ ...p, [i.id]: e.target.value }))}
                   >
@@ -383,18 +383,18 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                     <option value="snapshot">snapshot</option>
                   </select>
                   <input
-                    className="border border-ink px-2 py-0.5 font-ledger text-xs"
+                    className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"
                     placeholder="ref id / key"
                     value={linkRef[i.id] ?? ''}
                     onChange={(e) => setLinkRef((p) => ({ ...p, [i.id]: e.target.value }))}
                   />
                   <input
-                    className="border border-ink px-2 py-0.5 font-ledger text-xs"
+                    className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"
                     placeholder="note"
                     value={linkNote[i.id] ?? ''}
                     onChange={(e) => setLinkNote((p) => ({ ...p, [i.id]: e.target.value }))}
                   />
-                  <button onClick={() => addLink(i.id)} className="border border-ink px-2 py-0.5 font-ledger text-[11px] uppercase">
+                  <button onClick={() => addLink(i.id)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
                     Attach
                   </button>
                 </div>
@@ -403,10 +403,10 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
           </ol>
         </div>
       </div>
-      <div className="mt-4 border-2 border-ink bg-white p-4">
+      <div className="mt-4 border border-slate-200 rounded-xl bg-white shadow-sm p-4">
         <div className="flex items-baseline gap-3">
-          <h3 className="font-display text-lg uppercase">Gate heat (24h)</h3>
-          <button onClick={loadHeat} className="border border-ink px-3 py-1 font-ledger text-xs uppercase">
+          <h3 className="text-base font-semibold tracking-tight">Gate heat (24h)</h3>
+          <button onClick={loadHeat} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
             Load heatmap
           </button>
         </div>
@@ -421,17 +421,18 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
               </tr>
             </thead>
             <tbody>
-              {(heat ?? []).map((g) => {
+              {(heat ?? []).map((g, i) => {
                 const total = g.entries + g.exits
+                const max = Math.max(...(heat ?? []).map((h) => h.entries + h.exits), 1)
                 return (
                   <tr key={g.gate_id} className="border-t border-neutral-200">
                     <td className="py-1 uppercase">{g.gate_name}</td>
                     <td>{g.entries}</td>
                     <td>{g.exits}</td>
-                    <td>
+                    <td className="w-40">
                       <span
-                        className="inline-block h-3 bg-signal"
-                        style={{ width: `${Math.min(100, total * 10)}px` }}
+                        className={`inline-block h-3 rounded-sm ${i === 0 && max === total && total > 0 ? 'bg-signal' : 'bg-signal/60'}`}
+                        style={{ width: `${Math.max(2, Math.round((total / max) * 140))}px` }}
                       />
                     </td>
                   </tr>

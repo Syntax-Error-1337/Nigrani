@@ -242,9 +242,9 @@ export default function Kiosk({
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="font-display text-2xl uppercase">Gate kiosk</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">Gate kiosk</h2>
         {pending.length > 0 ? (
-          <span className="border border-signal bg-yellow-50 px-2 py-0.5 font-ledger text-xs uppercase">
+          <span className="border border-saffron bg-saffron-mist px-2 py-0.5 text-xs font-medium text-saffron-ink">
             {pending.length} pending
           </span>
         ) : null}
@@ -252,7 +252,7 @@ export default function Kiosk({
           <button
             onClick={retryPending}
             disabled={flushing}
-            className="border border-ink px-2 py-0.5 font-ledger text-xs uppercase disabled:opacity-50"
+            className="border border-slate-300 bg-white px-2 py-0.5 text-xs font-medium disabled:opacity-50"
           >
             {flushing ? 'Retrying…' : 'Retry now'}
           </button>
@@ -273,7 +273,7 @@ export default function Kiosk({
         </details>
       ) : null}
       {notice ? (
-        <p role="alert" className="mt-3 border border-deny bg-red-50 px-3 py-2 text-sm text-deny">
+        <p role="alert" className="mt-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
           {notice}
         </p>
       ) : null}
@@ -281,11 +281,11 @@ export default function Kiosk({
         <p className="mt-3 border border-ok bg-green-50 px-3 py-2 text-sm text-ok">{ok}</p>
       ) : null}
       <div className="mt-3 grid gap-4 md:grid-cols-2">
-        <div className="border-2 border-ink bg-white p-4">
+        <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
           <label className="flex flex-col gap-1 text-sm">
             Press-card payload (scanned QR JSON)
             <textarea
-              className="border border-ink px-3 py-2 font-ledger text-xs"
+              className="border border-slate-300 bg-white px-3 py-2 font-ledger text-xs"
               rows={4}
               value={payload}
               onChange={(e) => setPayload(e.target.value)}
@@ -293,13 +293,13 @@ export default function Kiosk({
             />
           </label>
           <div className="mt-2 flex gap-2">
-            <button onClick={verify} className="bg-ink px-4 py-2 text-sm uppercase text-paper">
+            <button onClick={verify} className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
               Verify card
             </button>
             <label className="flex flex-col gap-1 text-sm">
               Direction
               <select
-                className="border border-ink px-3 py-2"
+                className="border border-slate-300 bg-white px-3 py-2"
                 value={direction}
                 onChange={(e) => setDirection(e.target.value as 'entry' | 'exit')}
               >
@@ -336,20 +336,20 @@ export default function Kiosk({
           <div className="mt-3 flex gap-2">
             <button
               onClick={() => record('press_card')}
-              className="bg-ok px-4 py-2 text-sm uppercase text-white"
+              className="bg-ok px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
             >
               Log card entry
             </button>
             <button
               onClick={() => record('manual')}
-              className="border border-ink px-4 py-2 text-sm uppercase"
+              className="border border-slate-300 bg-white px-4 py-2 text-sm font-medium align-middle hover:border-slate-400"
             >
               Log manual entry
             </button>
           </div>
         </div>
-        <div className="border-2 border-ink bg-white p-4">
-          <h3 className="font-display text-lg uppercase">Recent crossings</h3>
+        <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
+          <h3 className="text-base font-semibold tracking-tight">Recent crossings</h3>
           {log.isLoading ? <p className="mt-2 text-sm">Loading log…</p> : null}
           {(log.data ?? []).length === 0 && !log.isLoading ? (
             <p className="mt-2 text-sm">No crossings recorded at this gate yet.</p>
@@ -360,12 +360,12 @@ export default function Kiosk({
                 <span className="uppercase">{e.direction}</span>
                 <span>{e.method === 'press_card' ? 'card' : 'manual'}</span>
                 {e.holder_name ? (
-                  <span className="font-display uppercase" title={e.holder_org ?? ''}>{e.holder_name}</span>
+                  <span className="font-semibold" title={e.holder_org ?? ''}>{e.holder_name}</span>
                 ) : null}
                 {e.snapshot_key ? (
                   <button
                     onClick={() => openPreview(e.snapshot_key)}
-                    className="border border-ink px-1 uppercase"
+                    className="border-slate-300 bg-white px-1 text-xs font-medium"
                   >
                     Photo
                   </button>
@@ -375,9 +375,9 @@ export default function Kiosk({
             ))}
           </ol>
           {preview ? (
-            <div className="mt-2 border-2 border-signal bg-white p-2">
+            <div className="mt-2 border border-signal bg-white p-2">
               <img src={preview.url} alt={`Gate capture ${preview.key}`} className="max-h-64 w-auto" />
-              <button onClick={() => setPreview(null)} className="mt-1 border border-ink px-2 py-1 uppercase">
+              <button onClick={() => setPreview(null)} className="mt-1 border-slate-300 bg-white px-2 py-1 text-xs font-medium align-middle hover:border-slate-400">
                 Close
               </button>
             </div>
