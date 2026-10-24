@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ArrowDownLeft, ArrowUpRight, Camera, CheckCircle2, ClipboardPaste, CornerDownLeft, History, ImageOff, RefreshCw, ScanSearch, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { useGateLog } from '@/entities/gate-log'
 import type { PressCard } from '@/entities/kyc'
@@ -61,12 +62,12 @@ const KIOSK_STRINGS = {
     retryNow: 'Retry now',
     retrying: 'Retrying…',
     waiting: 'Waiting…',
-    payloadLabel: '{t.payloadLabel}',
+    payloadLabel: 'Press-card payload (scanned QR JSON)',
     verifyCard: 'Verify card',
     direction: 'Direction',
     entry: 'Entry',
     exit: 'Exit',
-    snapshotLabel: '{t.snapshotLabel}',
+    snapshotLabel: 'Snapshot (JPEG ≤ 5MB)',
     staged: 'staged:',
     openCapture: 'open capture',
     logCard: 'Log card entry',
@@ -439,7 +440,7 @@ export default function Kiosk({
       <div className="flex items-baseline gap-3">
         <h2 className="text-2xl font-semibold tracking-tight">Gate kiosk</h2>
         {offline ? (
-          <span className="border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">
+          <span className="pill pill-archived">
             {t.offline} — {crl.current ? t.cachedList : t.noList}
           </span>
         ) : null}
@@ -454,7 +455,7 @@ export default function Kiosk({
           {lang === 'en' ? 'हिंदी' : 'English'}
         </button>
         {pending.length > 0 ? (
-          <span className="border border-saffron bg-saffron-mist px-2 py-0.5 text-xs font-medium text-saffron-ink">
+          <span className="pill border border-saffron bg-saffron-mist text-saffron-ink">
             {pending.length} {t.pending}
           </span>
         ) : null}
@@ -462,8 +463,9 @@ export default function Kiosk({
           <button
             onClick={retryPending}
             disabled={flushing}
-            className="border border-slate-300 bg-white px-2 py-0.5 text-xs font-medium disabled:opacity-50"
+            className="btn btn-secondary !px-2 !py-0.5 text-xs disabled:opacity-50"
           >
+            <RefreshCw className={`h-3 w-3 ${flushing ? 'animate-spin' : ''}`} />
             {flushing ? t.retrying : t.retryNow}
           </button>
         ) : null}
@@ -483,19 +485,26 @@ export default function Kiosk({
         </details>
       ) : null}
       {notice ? (
-        <p role="alert" className="mt-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+        <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {notice}
         </p>
       ) : null}
       {ok ? (
-        <p className="mt-3 border border-ok bg-green-50 px-3 py-2 text-sm text-ok">{ok}</p>
+        <p className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-ok">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          {ok}
+        </p>
       ) : null}
       <div className="mt-3 grid gap-4 md:grid-cols-2">
-        <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
+        <div className="card p-4">
           <label className="flex flex-col gap-1 text-sm">
-            Press-card payload (scanned QR JSON)
+            <span className="flex items-center gap-1.5">
+              <ClipboardPaste className="h-3.5 w-3.5 text-slate-400" />
+              {t.payloadLabel}
+            </span>
             <textarea
-              className="border border-slate-300 bg-white px-3 py-2 font-ledger text-xs"
+              className="input font-ledger text-xs"
               rows={4}
               value={payload}
               onChange={(e) => setPayload(e.target.value)}
@@ -503,13 +512,14 @@ export default function Kiosk({
             />
           </label>
           <div className="mt-2 flex gap-2">
-            <button onClick={verify} className="bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
+            <button onClick={verify} className="btn btn-primary">
+              <ScanSearch className="h-3.5 w-3.5" />
               {t.verifyCard}
             </button>
             <label className="flex flex-col gap-1 text-sm">
               {t.direction}
               <select
-                className="border border-slate-300 bg-white px-3 py-2"
+                className="input"
                 value={direction}
                 onChange={(e) => setDirection(e.target.value as 'entry' | 'exit')}
               >
@@ -519,7 +529,10 @@ export default function Kiosk({
             </label>
           </div>
           <label className="mt-3 flex flex-col gap-1 text-sm">
-            Snapshot (JPEG ≤ 5MB)
+            <span className="flex items-center gap-1.5">
+              <Camera className="h-3.5 w-3.5 text-slate-400" />
+              {t.snapshotLabel}
+            </span>
             <input
               type="file"
               accept="image/jpeg"
@@ -546,28 +559,41 @@ export default function Kiosk({
           <div className="mt-3 flex gap-2">
             <button
               onClick={() => record('press_card')}
-              className="bg-ok px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              className="btn btn-success"
             >
+              <ArrowDownLeft className="h-3.5 w-3.5" />
               {t.logCard}
             </button>
             <button
               onClick={() => record('manual')}
-              className="border border-slate-300 bg-white px-4 py-2 text-sm font-medium align-middle hover:border-slate-400"
+              className="btn btn-secondary"
             >
+              <CornerDownLeft className="h-3.5 w-3.5" />
               {t.logManual}
             </button>
           </div>
         </div>
-        <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
-          <h3 className="text-base font-semibold tracking-tight">{t.recent}</h3>
+        <div className="card p-4">
+          <h3 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
+            <History className="h-4 w-4 text-slate-400" />
+            {t.recent}
+          </h3>
           {log.isLoading ? <p className="mt-2 text-sm">{t.loading}</p> : null}
           {(log.data ?? []).length === 0 && !log.isLoading ? (
-            <p className="mt-2 text-sm">No crossings recorded at this gate yet.</p>
+            <p className="mt-6 text-center text-sm text-slate-400">
+              <ImageOff className="mx-auto h-5 w-5" />
+              <span className="mt-1 block">No crossings recorded at this gate yet.</span>
+            </p>
           ) : null}
           <ol className="mt-2 divide-y divide-neutral-200">
             {(log.data ?? []).map((e) => (
               <li key={e.id} className="flex items-center gap-2 py-1 font-ledger text-xs">
-                <span className="uppercase">{e.direction}</span>
+                <span className="flex items-center gap-1 uppercase">
+                  {e.direction === 'exit'
+                    ? <ArrowUpRight className="h-3 w-3 text-slate-400" />
+                    : <ArrowDownLeft className="h-3 w-3 text-signal" />}
+                  {e.direction}
+                </span>
                 <span>{e.method === 'press_card' ? 'card' : 'manual'}</span>
                 {e.holder_name ? (
                   <span className="font-semibold" title={e.holder_org ?? ''}>{e.holder_name}</span>

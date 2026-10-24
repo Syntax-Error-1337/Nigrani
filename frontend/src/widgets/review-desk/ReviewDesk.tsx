@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Ban, Check, Download, IdCard, Inbox, RefreshCcw, X, XCircle } from 'lucide-react'
 import { useDebounced } from '@/shared/lib'
 import { useKycQueue, type KycApplication, type PressCard } from '@/entities/kyc'
 import { apiFetch } from '@/shared/api'
@@ -125,10 +126,10 @@ export default function ReviewDesk() {
 
   return (
     <section className="mt-8">
-      <div className="flex items-baseline gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight">Press review desk</h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold tracking-tight">Press review desk</h2>
         <input
-          className="border border-slate-300 bg-white px-2 py-1 text-sm"
+          className="input ml-auto w-56"
           placeholder="Search applicants…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -140,7 +141,9 @@ export default function ReviewDesk() {
             key={s}
             onClick={() => setTab(s)}
             className={`rounded-full px-3 py-1 text-xs font-medium ${
-              tab === s ? 'bg-navy text-white' : 'bg-white border border-slate-300 text-slate-600 hover:border-slate-400'
+              tab === s
+                ? 'bg-navy text-white shadow-sm'
+                : 'bg-white border border-slate-300 text-slate-600 hover:border-slate-400'
             }`}
           >
             {s}
@@ -148,18 +151,22 @@ export default function ReviewDesk() {
         ))}
       </div>
       {notice ? (
-        <p role="alert" className="mt-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+        <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {notice}
         </p>
       ) : null}
       {queue.isLoading ? <p className="mt-3">Loading queue…</p> : null}
       {queue.isError ? <p className="mt-3 text-deny">Queue would not load.</p> : null}
       {!queue.isLoading && rows.length === 0 ? (
-        <p className="mt-3">No {tab} applications.</p>
+        <p className="mt-8 text-center text-sm text-slate-400">
+          <Inbox className="mx-auto h-5 w-5" />
+          <span className="mt-1 block">No {tab} applications.</span>
+        </p>
       ) : null}
-      <ol className="mt-3 divide-y divide-slate-200 border border-slate-200 bg-white rounded-xl shadow-sm">
+      <ol className="mt-3 card divide-y divide-slate-100">
         {rows.map((app) => (
-          <li key={app.id} className="px-4 py-3">
+          <li key={app.id} className="px-4 py-3 transition-colors hover:bg-slate-50/70">
             <div className="flex flex-wrap items-baseline gap-3">
               <span className="text-lg font-semibold tracking-tight">{app.full_name}</span>
               {app.photo_url ? (
@@ -177,21 +184,21 @@ export default function ReviewDesk() {
                 <span className="font-ledger text-xs">note: {app.decision_note}</span>
               ) : null}
               {(app.prior_decisions ?? 0) > 0 ? (
-                <span className="border border-saffron bg-saffron-mist px-1 text-xs font-medium text-saffron-ink" title="Prior decided applications share this document">
+                <span className="pill border border-saffron bg-saffron-mist text-saffron-ink" title="Prior decided applications share this document">
                   repeat ×{app.prior_decisions}
                 </span>
               ) : null}
               {(app.duplicates ?? []).map((f) => (
                 <span
                   key={`${f.similar_id}-${f.reason}`}
-                  className="border border-saffron bg-saffron-mist px-1 text-xs font-medium text-saffron-ink"
+                  className="pill border border-saffron bg-saffron-mist text-saffron-ink"
                   title={`Possible duplicate of ${f.similar_id.slice(0, 8)} — ${f.reason} similarity ${f.score.toFixed(2)}`}
                 >
                   dup? {f.reason} {f.score.toFixed(2)}
                 </span>
               ))}
               {app.card_revoked_at ? (
-                <span className="border border-rose-200 bg-rose-50 px-1 text-xs font-medium text-deny" title={`Card revoked ${app.card_revoked_at}`}>
+                <span className="pill pill-archived" title={`Card revoked ${app.card_revoked_at}`}>
                   revoked
                 </span>
               ) : null}
@@ -199,22 +206,22 @@ export default function ReviewDesk() {
             {tab === 'pending' ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input
-                  className="min-w-56 flex-1 border border-slate-300 bg-white px-2 py-1 text-sm"
+                  className="input min-w-56 flex-1"
                   placeholder="Reason (required for rejection)"
                   value={note[app.id] ?? ''}
                   onChange={(e) => setNote({ ...note, [app.id]: e.target.value })}
                 />
                 <button
                   onClick={() => decide(app, 'approved')}
-                  className="bg-ok px-3 py-1 text-sm font-medium text-white hover:bg-emerald-700"
+                  className="btn btn-success"
                 >
-                  Approve
+                  <Check className="h-3.5 w-3.5" /> Approve
                 </button>
                 <button
                   onClick={() => decide(app, 'rejected')}
-                  className="bg-deny px-3 py-1 text-sm font-medium text-white hover:bg-rose-700"
+                  className="btn btn-danger"
                 >
-                  Reject
+                  <X className="h-3.5 w-3.5" /> Reject
                 </button>
               </div>
             ) : null}
@@ -223,26 +230,26 @@ export default function ReviewDesk() {
                 {!app.card_revoked_at ? (
                   <button
                     onClick={() => issueCard(app)}
-                    className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400"
+                    className="btn btn-secondary"
                   >
-                    Issue press card
+                    <IdCard className="h-3.5 w-3.5" /> Issue press card
                   </button>
                 ) : null}
                 {!app.card_revoked_at ? (
                   <button
                     onClick={() => reissue(app)}
-                    className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400"
+                    className="btn btn-secondary"
                     title="Rotate the serial and refresh the 90-day validity; old prints stop scanning"
                   >
-                    Reissue card
+                    <RefreshCcw className="h-3.5 w-3.5" /> Reissue card
                   </button>
                 ) : null}
                 {!app.card_revoked_at ? (
                   <button
                     onClick={() => revoke(app)}
-                    className="bg-deny px-3 py-1 text-xs font-medium text-white hover:bg-rose-700"
+                    className="btn btn-danger"
                   >
-                    Revoke card
+                    <Ban className="h-3.5 w-3.5" /> Revoke card
                   </button>
                 ) : null}
                 {app.card_serial && !app.card_revoked_at ? (
@@ -259,11 +266,8 @@ export default function ReviewDesk() {
         ))}
       </ol>
       <div className="mt-3 flex items-baseline gap-3">
-        <button
-          onClick={downloadCrl}
-          className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400"
-        >
-          Download CRL
+        <button onClick={downloadCrl} className="btn btn-secondary">
+          <Download className="h-3.5 w-3.5" /> Download CRL
         </button>
         <span className="text-xs text-neutral-500">
           Revoked, expired, and superseded serials — offline JSON for gate checks.

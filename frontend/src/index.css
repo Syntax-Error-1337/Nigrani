@@ -91,3 +91,95 @@ body {
 ::selection {
   background: color-mix(in srgb, var(--color-signal) 18%, transparent);
 }
+
+@layer components {
+  /* Shared console primitives — every panel maps through these so the
+   * effects stay coherent (s-C1/C2). */
+  .card {
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-slate-200, #e2e8f0);
+    background: #fff;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  }
+  .card-hover {
+    transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  }
+  .card-hover:hover {
+    box-shadow: 0 4px 14px rgb(15 23 42 / 0.08);
+    border-color: #cbd5e1;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 0.5rem;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+      box-shadow 0.15s ease, transform 0.1s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary {
+    background: var(--color-signal);
+    color: #fff;
+    border: 1px solid transparent;
+    box-shadow: 0 1px 2px rgb(0 102 204 / 0.25);
+  }
+  .btn-primary:hover { background: var(--color-signal-deep); }
+  .btn-secondary {
+    background: #fff;
+    color: var(--color-ink);
+    border: 1px solid #cbd5e1;
+  }
+  .btn-secondary:hover { border-color: #94a3b8; background: #f8fafc; }
+  .btn-danger {
+    background: var(--color-deny);
+    color: #fff;
+    border: 1px solid transparent;
+  }
+  .btn-danger:hover { filter: brightness(0.92); }
+  .btn-ghost {
+    background: transparent;
+    color: inherit;
+    border: 1px solid transparent;
+  }
+  .btn-ghost:hover { background: rgb(15 23 42 / 0.05); }
+  .input {
+    border-radius: 0.5rem;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.875rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .input:focus {
+    border-color: var(--color-signal);
+    box-shadow: 0 0 0 3px rgb(0 102 204 / 0.12);
+    outline: none;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 9999px;
+    padding: 0.1rem 0.5rem;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .pill-ok { border: 1px solid #a7f3d0; background: #ecfdf5; color: var(--color-ok); }
+  .pill-archived { border: 1px solid #fecaca; background: #fef2f2; color: var(--color-deny); }
+  .pill-neutral { border: 1px solid #e2e8f0; background: #f8fafc; color: #64748b; }
+}
+
+@layer components {
+  .btn-success {
+    background: var(--color-ok);
+    color: #fff;
+    border: 1px solid transparent;
+    box-shadow: 0 1px 2px rgb(14 111 19 / 0.25);
+  }
+  .btn-success:hover { filter: brightness(1.08); }
+}
