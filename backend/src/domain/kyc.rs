@@ -88,6 +88,20 @@ pub struct KycApplication {
     /// Physical cards produced; reissue bumps it and rotates the serial.
     #[serde(default)]
     pub card_print_count: i32,
+    /// Fuzzy-duplicate flags (reviewer hints). Ids + score/reason only —
+    /// never plaintext — computed at submit, persisted for the queue.
+    #[serde(default)]
+    pub duplicates: Vec<DuplicateFlag>,
+}
+
+/// One fuzzy-match flag: this application looks like `similar_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuplicateFlag {
+    pub similar_id: Uuid,
+    /// 0..=1 similarity of the matched field.
+    pub score: f32,
+    /// Which field matched.
+    pub reason: String,
 }
 
 /// Cryptographically signed press-card payload encoded into the QR code.

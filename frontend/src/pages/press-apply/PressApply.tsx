@@ -97,6 +97,21 @@ export default function PressApply() {
               onChange={(e) => setForm({ ...form, document_number: e.target.value })}
             />
           </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Photo (≤ 2 MB; reused photos are flagged as duplicates)
+            <input
+              className={field}
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.onload = () => setForm((p) => ({ ...p, photo_url: String(reader.result) }))
+                reader.readAsDataURL(file)
+              }}
+            />
+          </label>
           {message ? (
             <p role="alert" className="border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
               {message}

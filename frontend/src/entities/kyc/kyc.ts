@@ -18,6 +18,7 @@ export interface KycApplication {
   card_serial: string | null
   card_expires_at: string | null
   card_print_count: number
+  duplicates: { similar_id: string; score: number; reason: string }[]
 }
 
 export type { PressCard } from '@/shared/lib/press-card'

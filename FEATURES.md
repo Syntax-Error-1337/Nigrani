@@ -82,7 +82,7 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 | 6.1 | **Face-embedding enrollment** — 512-d vectors (pgvector) `POST /forensics/embeddings` | ✅ |
 | 6.2 | **Cosine-similarity search** with threshold/limit/site scoping → ranked matches | ✅ |
 | 6.3 | Forensic bench UI live over the event stream (no manual refresh) | ✅ |
-| 6.4 | Fuzzy duplicate matching, photo-hash duplicates (KYC-side) | ◐ (out-of-scope note) |
+| 6.4 | Fuzzy duplicate matching, photo-hash duplicates (KYC-side) | ✅ |
 
 ## 7. Incident management
 
@@ -149,4 +149,4 @@ Status legend: ✅ shipped · ◐ recorded requirement, not yet built.
 
 ## Recorded-but-unbuilt requirements (◐ above)
 
-Fuzzy/photo-hash duplicate matching.
+None — all recorded requirements are shipped.

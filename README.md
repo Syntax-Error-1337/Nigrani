@@ -74,6 +74,12 @@ ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
 - Resubmitting a document with a live pending row → `409` (blind-index
   match, case/space-insensitive, per document type); decided rows don't
   block — re-application surfaces as `prior_decisions` ("repeat ×N")
+- **Fuzzy duplicates** (migration 0022): at submit the application is
+  compared in memory against recent rows — name similarity, decrypted
+  document-number similarity (normalized Levenshtein ≥ 0.85), and SHA-256
+  photo-hash equality for `data:` URL photos (2 MB cap). Flags persist
+  ids-only (`kyc_duplicates`) and never block; the queue shows
+  "dup? name 0.92"-style badges, the submit response carries them too
 - `GET /kyc/applications?status=&q=` (needs `kyc:review`) → reviewer queue
 - `POST /kyc/applications/:id/decide` `{decision, note?}` — decided rows
   immutable (`409` on re-decide)
@@ -238,7 +244,10 @@ aws --endpoint-url http://127.0.0.1:4566 s3 sync \
   out); merging is same-site, no chains, evidence links move; packs are
   self-contained JSON (case + resolved evidence + site audit slice +
   chain verdict)
-- Fuzzy duplicate matching, photo-hash duplicates, partial UNIQUE index
+- Fuzzy duplicate matching, photo-hash duplicates — both shipped (see KYC
+  section): flagged at submit, ids-only persistence, never blocking; the
+  partial UNIQUE index remains a PostgreSQL-level idea (the blind-index
+  check makes it redundant at this scale)
 
 ## Deployment & CI
 

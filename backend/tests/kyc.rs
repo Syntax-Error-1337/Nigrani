@@ -982,3 +982,90 @@ async fn card_lifecycle_concurrent_first_prints_share_serial() {
     assert_eq!(count, 1, "minted exactly once");
 }
 
+
+/// Fuzzy duplicates: near-identical name and fuzzy doc number flag the
+/// application (ids + score only), exact doc block still applies, and the
+/// queue shows the stored flags.
+#[tokio::test]
+async fn fuzzy_duplicates_flagged_not_blocked() {
+    let srv = TestServer::spawn().await;
+    let uniq = uuid::Uuid::new_v4().to_string()[..8].to_owned();
+    // First application (decided, so it doesn't block the resubmission).
+    let first: Value = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({ "full_name": format!("Rohini Verma {uniq}"), "organization": "PNN",
+                       "document_type": "press_id", "document_number": format!("PN-{uniq}-1234") }))
+        .send().await.unwrap().json().await.unwrap();
+    let admin = srv.login("superadmin").await;
+    let first_id = first["id"].as_str().unwrap().to_owned();
+    let res = srv.client.post(format!("{}/kyc/applications/{}/decide", srv.base, first_id))
+        .bearer_auth(&admin).json(&json!({ "decision": "approved" })).send().await.unwrap();
+    assert_eq!(res.status(), 200);
+
+    // Second: NAME one edit away, doc number differs by a digit → flagged.
+    let second: Value = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({ "full_name": format!("Rohini Vermi {uniq}"), "organization": "PNN",
+                       "document_type": "press_id", "document_number": format!("PN-{uniq}-1235") }))
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(second["status"], "pending", "fuzzy match flags but never blocks");
+    let flags = second["duplicates"].as_array().unwrap();
+    assert!(flags.iter().any(|f| f["similar_id"] == first_id.as_str() && f["reason"] == "name"),
+            "name flagged: {flags:?}");
+    // Distinct applicant: no flags.
+    let third: Value = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({ "full_name": format!("Zubin Mehta {uniq}"), "document_type": "press_id",
+                       "document_number": format!("ZZ-99-{uniq}") }))
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(third["duplicates"].as_array().unwrap().len(), 0);
+
+    // Queue carries the stored flags (search by the unique name — the
+    // unfiltered page is oldest-first and saturated in the shared test DB).
+    let queue: Value = srv.client.get(format!("{}/kyc/applications?status=pending&q={uniq}", srv.base))
+        .bearer_auth(&admin).send().await.unwrap().json().await.unwrap();
+    let row = queue.as_array().unwrap().iter().find(|r| r["id"] == second["id"]).unwrap();
+    assert!(row["duplicates"].as_array().unwrap().iter().any(|f| f["similar_id"] == first_id.as_str()));
+
+    // Exact pending duplicate still blocks (409) — flags don't weaken the block.
+    let res = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({ "full_name": format!("Someone Else {uniq}"), "document_type": "press_id",
+                       "document_number": format!("PN-{uniq}-1235") }))
+        .send().await.unwrap();
+    assert_eq!(res.status(), 409);
+}
+
+/// Photo-hash duplicates: same photo bytes under a different name flag with
+/// reason=photo; oversized/malformed photos are refused.
+#[tokio::test]
+async fn photo_hash_duplicates_flagged() {
+    let srv = TestServer::spawn().await;
+    let uniq = uuid::Uuid::new_v4().to_string()[..8].to_owned();
+    // 1x1 PNG bytes, base64 (deterministic tiny photo).
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    let photo = format!("data:image/png;base64,{png}");
+    let first: Value = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({ "full_name": format!("Photo A {uniq}"), "document_type": "aadhaar",
+                       "document_number": format!("AA-1-{uniq}"), "photo_url": photo }))
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(first["status"], "pending");
+    // Different name + document, SAME photo → photo flag.
+    let second: Value = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({ "full_name": format!("Photo B {uniq}"), "document_type": "pan",
+                       "document_number": format!("PN-2-{uniq}"), "photo_url": photo }))
+        .send().await.unwrap().json().await.unwrap();
+    let flags = second["duplicates"].as_array().unwrap();
+    assert!(flags.iter().any(|f| f["similar_id"] == first["id"] && f["reason"] == "photo" && f["score"] == 1.0),
+            "photo flagged: {flags:?}");
+    // Malformed and oversized photos are refused cleanly.
+    let res = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({ "full_name": "Bad photo", "document_type": "aadhaar",
+                       "document_number": format!("AA-3-{uniq}"), "photo_url": "data:image/png;base64,!!!not-base64!!!" }))
+        .send().await.unwrap();
+    assert_eq!(res.status(), 400);
+    let big = format!("data:image/png;base64,{}", "A".repeat(3 * 1024 * 1024));
+    let res = srv.client.post(format!("{}/kyc/applications", srv.base))
+        .json(&json!({ "full_name": "Big photo", "document_type": "aadhaar",
+                       "document_number": format!("AA-4-{uniq}"), "photo_url": big }))
+        .send().await.unwrap();
+    // The 2 MB axum body limit intercepts before the handler: 413 is a
+    // clean refusal too.
+    assert_eq!(res.status(), 413);
+}

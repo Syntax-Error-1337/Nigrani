@@ -181,6 +181,15 @@ export default function ReviewDesk() {
                   repeat ×{app.prior_decisions}
                 </span>
               ) : null}
+              {(app.duplicates ?? []).map((f) => (
+                <span
+                  key={`${f.similar_id}-${f.reason}`}
+                  className="border border-saffron bg-saffron-mist px-1 text-xs font-medium text-saffron-ink"
+                  title={`Possible duplicate of ${f.similar_id.slice(0, 8)} — ${f.reason} similarity ${f.score.toFixed(2)}`}
+                >
+                  dup? {f.reason} {f.score.toFixed(2)}
+                </span>
+              ))}
               {app.card_revoked_at ? (
                 <span className="border border-rose-200 bg-rose-50 px-1 text-xs font-medium text-deny" title={`Card revoked ${app.card_revoked_at}`}>
                   revoked

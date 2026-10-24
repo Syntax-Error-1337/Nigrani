@@ -62,6 +62,7 @@ struct KycRow {
     card_serial: Option<String>,
     card_expires_at: Option<Ts>,
     card_print_count: i32,
+    // photo_hash is read by scan_duplicates' own SQL; not mapped here.
     // prior_serials is SQL-only (reissue/CRL); not mapped here.
 }
 
@@ -100,6 +101,7 @@ fn to_application(
         card_serial: row.card_serial,
         card_expires_at: row.card_expires_at,
         card_print_count: row.card_print_count,
+        duplicates: Vec::new(),
     }))
 }
 
@@ -141,6 +143,103 @@ fn crypto(state: &AppState) -> AppResult<crate::infrastructure::crypto::Template
     })
 }
 
+// --- Fuzzy duplicate matching + photo-hash duplicates (PII-safe) ---
+
+/// Normalized similarity 0..=1 via edit distance (no new dependency).
+fn similarity(a: &str, b: &str) -> f32 {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        cur[0] = i;
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    1.0 - prev[b.len()] as f32 / a.len().max(b.len()) as f32
+}
+
+/// SHA-256 hex of photo bytes from a `data:` URL (the only self-contained
+/// form a JSON submit can carry). Plain http(s) URLs have no bytes here —
+/// skip (their dedupe is the document fingerprint's job).
+fn photo_hash_of(photo_url: &str) -> AppResult<Option<String>> {
+    let Some(rest) = photo_url.strip_prefix("data:") else {
+        return Ok(None);
+    };
+    let Some((meta, b64)) = rest.split_once(',') else {
+        return Err(AppError::BadRequest("photo must be a data: URL with base64 payload".to_owned()));
+    };
+    if !meta.contains(";base64") {
+        return Err(AppError::BadRequest("photo data URL must be base64-encoded".to_owned()));
+    }
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64.trim())
+        .map_err(|_| AppError::BadRequest("photo base64 payload malformed".to_owned()))?;
+    // Bound the column: 2 MB decoded is generous for a document photo.
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err(AppError::BadRequest("photo too large (2 MB max)".to_owned()));
+    }
+    let digest = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(&bytes)
+    };
+    Ok(Some(digest.iter().map(|b| format!("{b:02x}")).collect()))
+}
+
+/// Fuzzy scan against recent rows: name (case/space-insensitive), decrypted
+/// document number (normalized), photo hash. Flags ≥0.85; exact photo-hash
+/// hits score 1.0. Only ids are persisted — the plaintext never leaves RAM.
+async fn scan_duplicates(
+    pool: &sqlx::PgPool,
+    crypto: &crate::infrastructure::crypto::TemplateCrypto,
+    new_id: Uuid,
+    new_name: &str,
+    new_doc: &str,
+    new_photo_hash: Option<&str>,
+) -> AppResult<Vec<(Uuid, f32, &'static str)>> {
+    const FLOOR: f32 = 0.85;
+    let name_key = |s: &str| s.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
+    let rows: Vec<(Uuid, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, full_name, document_number, photo_hash FROM kyc_applications
+         WHERE id <> $1 ORDER BY submitted_at DESC LIMIT 500",
+    )
+    .bind(new_id)
+    .fetch_all(pool)
+    .await
+    .map_err(AppError::Db)?;
+    let mut flags: Vec<(Uuid, f32, &'static str)> = Vec::new();
+    for (id, name, doc_number_enc, photo_hash) in rows {
+        let doc_number = crypto.decrypt(&doc_number_enc).unwrap_or_default();
+        let name_score = similarity(&name_key(new_name), &name_key(&name));
+        // Case/space-insensitive document comparison (the blind index
+        // normalizes too, but only for exact matches).
+        let doc_score = similarity(new_doc.trim().to_uppercase().as_str(), doc_number.trim().to_uppercase().as_str());
+        let photo_score = match (new_photo_hash, photo_hash.as_deref()) {
+            (Some(a), Some(b)) if a == b => 1.0,
+            _ => 0.0,
+        };
+        let best = [
+            (name_score, "name"),
+            (doc_score, "document"),
+            (photo_score, "photo"),
+        ]
+        .into_iter()
+        .filter(|(s, _)| *s >= FLOOR)
+        .max_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((score, reason)) = best {
+            flags.push((id, score, reason));
+        }
+    }
+    Ok(flags)
+}
+
 /// Public endpoint: journalists submit identity documents for review.
 /// No auth by design (pre-registration portal); rate limiting lands in s3.
 pub async fn submit_kyc(
@@ -159,6 +258,8 @@ pub async fn submit_kyc(
     let crypto = crypto(&state)?;
     let fingerprint =
         crypto.fingerprint(&normalize_document(document_type.as_str(), body.document_number.trim()));
+    // Photo bytes hashed BEFORE encryption (plain URL → None).
+    let photo_hash = photo_hash_of(body.photo_url.as_deref().unwrap_or(""))?;
     // A live pending row for this document blocks resubmission (queue spam).
     // Decided rows don't block: re-application after rejection is legitimate
     // (and surfaces via `prior_decisions` instead).
@@ -184,8 +285,8 @@ pub async fn submit_kyc(
         ));
     }
     let row: KycRow = sqlx::query_as(&format!(
-        "INSERT INTO kyc_applications (full_name, organization, document_type, document_number, photo_url, doc_fingerprint)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING {ROW_COLS}"
+        "INSERT INTO kyc_applications (full_name, organization, document_type, document_number, photo_url, doc_fingerprint, photo_hash)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {ROW_COLS}"
     ))
     .bind(body.full_name.trim())
     .bind(body.organization.as_deref().unwrap_or(""))
@@ -193,6 +294,7 @@ pub async fn submit_kyc(
     .bind(crypto.encrypt(body.document_number.trim())?)
     .bind(crypto.encrypt(body.photo_url.as_deref().unwrap_or(""))?)
     .bind(&fingerprint)
+    .bind(&photo_hash)
     .fetch_one(&state.pool)
     .await
     .map_err(AppError::Db)?;
@@ -200,6 +302,48 @@ pub async fn submit_kyc(
     let mut app = to_application(&crypto, row)?
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("bad kyc row")))?;
     app.prior_decisions = prior_count(&state.pool, &fp, app.id).await?;
+    // Fuzzy scan runs once, at submit, while the plaintext is in hand.
+    let flags = scan_duplicates(
+        &state.pool,
+        &crypto,
+        app.id,
+        &app.full_name,
+        body.document_number.trim(),
+        photo_hash.as_deref(),
+    )
+    .await?;
+    for (similar_id, score, reason) in &flags {
+        sqlx::query(
+            "INSERT INTO kyc_duplicates (application_id, similar_id, score, reason)
+             VALUES ($1, $2, $3, $4) ON CONFLICT (application_id, similar_id) DO NOTHING",
+        )
+        .bind(app.id)
+        .bind(similar_id)
+        .bind(score)
+        .bind(reason)
+        .execute(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+    }
+    app.duplicates = flags
+        .into_iter()
+        .map(|(similar_id, score, reason)| crate::domain::DuplicateFlag {
+            similar_id,
+            score,
+            reason: reason.to_owned(),
+        })
+        .collect();
+    if !app.duplicates.is_empty() {
+        super::routes_audit::record(
+            &state.pool,
+            None,
+            "kyc.duplicate_flagged",
+            "kyc_application",
+            Some(app.id),
+            serde_json::json!({"count": app.duplicates.len()}),
+        )
+        .await;
+    }
     super::routes_audit::record(
         &state.pool, None, "kyc.submitted", "kyc_application", Some(app.id),
         serde_json::json!({"full_name": app.full_name}),
@@ -224,7 +368,7 @@ pub async fn list_kyc(
     let rows: Vec<KycRow> = sqlx::query_as(&format!(
         "SELECT {ROW_COLS} FROM kyc_applications
          WHERE status = $1 AND (full_name ILIKE $2 OR organization ILIKE $2)
-         ORDER BY submitted_at LIMIT $3 OFFSET $4"
+         ORDER BY submitted_at DESC LIMIT $3 OFFSET $4"
     ))
     .bind(status)
     .bind(pattern)
@@ -234,11 +378,33 @@ pub async fn list_kyc(
     .await
     .map_err(AppError::Db)?;
     let crypto = crypto(&state)?;
+    // One flag query for the whole page (ids only — no PII handling here).
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
+    let mut flags_by_app: std::collections::HashMap<Uuid, Vec<crate::domain::DuplicateFlag>> =
+        std::collections::HashMap::new();
+    if !ids.is_empty() {
+        let flag_rows: Vec<(Uuid, Uuid, f32, String)> = sqlx::query_as(
+            "SELECT application_id, similar_id, score, reason
+             FROM kyc_duplicates WHERE application_id = ANY($1)",
+        )
+        .bind(&ids)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(AppError::Db)?;
+        for (application_id, similar_id, score, reason) in flag_rows {
+            flags_by_app.entry(application_id).or_default().push(crate::domain::DuplicateFlag {
+                similar_id,
+                score,
+                reason,
+            });
+        }
+    }
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let fp = row.doc_fingerprint.clone();
         if let Some(mut app) = to_application(&crypto, row)? {
             app.prior_decisions = prior_count(&state.pool, &fp, app.id).await?;
+            app.duplicates = flags_by_app.remove(&app.id).unwrap_or_default();
             out.push(app);
         }
     }
