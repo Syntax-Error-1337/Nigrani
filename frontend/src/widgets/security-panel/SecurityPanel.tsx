@@ -110,8 +110,8 @@ export default function SecurityPanel() {
       {totpUri && totpSecret ? (
         <div className="mt-3 max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-sm text-sm">
           <p className="font-medium">Add Nigrani to your authenticator app</p>
-          <p className="mt-2 break-all font-mono text-xs text-neutral-600">{totpUri}</p>
-          <p className="mt-1 text-xs text-neutral-500">Manual key: <span className="font-mono">{totpSecret}</span></p>
+          <p className="mt-2 break-all font-mono text-xs text-slate-600">{totpUri}</p>
+          <p className="mt-1 text-xs text-slate-500">Manual key: <span className="font-mono">{totpSecret}</span></p>
           <div className="mt-3 flex gap-2">
             <input
               value={code}
@@ -120,7 +120,7 @@ export default function SecurityPanel() {
               inputMode="numeric"
               className="w-32 rounded-md border border-slate-300 px-2 py-1 text-sm"
             />
-            <button onClick={confirmTotp} className="bg-signal px-3 py-1 text-xs font-medium text-white hover:bg-signal-deep">
+            <button onClick={confirmTotp} className="btn btn-primary !px-3 !py-1 !text-xs">
               Confirm
             </button>
           </div>
@@ -148,7 +148,7 @@ export default function SecurityPanel() {
               <span className="font-ledger">
                 started {new Date(s.started).toLocaleString()}
               </span>
-              <span className="text-neutral-500">expires {new Date(s.expires).toLocaleString()}</span>
+              <span className="text-slate-500">expires {new Date(s.expires).toLocaleString()}</span>
               {s.current ? (
                 <span className="rounded-full bg-saffron-mist px-2 py-0.5 text-[10px] font-medium text-saffron-ink">this device</span>
               ) : (

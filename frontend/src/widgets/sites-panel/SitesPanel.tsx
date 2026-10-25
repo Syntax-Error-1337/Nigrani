@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Archive, ArchiveRestore, MapPin, Plus, ScanLine } from 'lucide-react'
+import { Archive, ArchiveRestore, MapPin, Plus, ScanLine, XCircle } from 'lucide-react'
 import { useGates, type Site } from '@/entities/site'
 import { apiFetch } from '@/shared/api'
 
@@ -143,7 +143,8 @@ export default function SitesPanel({
   return (
     <>
       {notice ? (
-        <p role="alert" className="border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+        <p role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {notice}
         </p>
       ) : null}
@@ -171,6 +172,12 @@ export default function SitesPanel({
         {sitesError ? (
           <p role="alert" className="mt-2 text-sm text-deny">
             Sites would not load. Check the API connection.
+          </p>
+        ) : null}
+        {sites.length === 0 && !sitesLoading ? (
+          <p className="mt-8 text-center text-sm text-slate-400">
+            <MapPin className="mx-auto h-5 w-5" />
+            <span className="mt-1 block">No protest sites yet{canWrite ? ' — add the first one below.' : '.'}</span>
           </p>
         ) : null}
         {sites.length > 0 ? (
@@ -247,7 +254,7 @@ export default function SitesPanel({
                 placeholder="City"
               />
             </label>
-            <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg bg-signal px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-signal-deep">
+            <button type="submit" className="btn btn-primary">
               <Plus className="h-3.5 w-3.5" /> Add site
             </button>
           </form>
@@ -397,7 +404,7 @@ export default function SitesPanel({
                 <option value="both">Both</option>
               </select>
             </label>
-            <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg bg-signal px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-signal-deep">
+            <button type="submit" className="btn btn-primary">
               <Plus className="h-3.5 w-3.5" /> Post gate
             </button>
           </form>

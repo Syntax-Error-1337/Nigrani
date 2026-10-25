@@ -125,18 +125,18 @@ function detailLines(detail: unknown): [string, string][] {
           return (
             <li key={e.seq} className="px-4 py-2 font-ledger text-xs transition-colors hover:bg-slate-50/70">
               <div className="flex items-baseline gap-3">
-                <span className="text-neutral-400">#{e.seq}</span>
+                <span className="text-slate-400">#{e.seq}</span>
                 <span className="uppercase">{e.action}</span>
-                <span className="text-neutral-500">{e.entity}</span>
+                <span className="text-slate-500">{e.entity}</span>
                 <span className="ml-auto">{new Date(e.at).toLocaleString()}</span>
               </div>
               {lines.length > 0 ? (
                 <details className="mt-1">
-                  <summary className="cursor-pointer uppercase text-neutral-500">detail</summary>
+                  <summary className="cursor-pointer uppercase text-slate-500">detail</summary>
                   <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3">
                     {lines.map(([k, v]) => (
                       <div key={k} className="contents">
-                        <dt className="text-neutral-500">{k}</dt>
+                        <dt className="text-slate-500">{k}</dt>
                         <dd className="break-all">{v}</dd>
                       </div>
                     ))}

@@ -189,7 +189,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
           </p>
         ) : null}
         {orphans && orphans.sample.length > 0 ? (
-          <ol className="mt-1 font-ledger text-xs text-neutral-500">
+          <ol className="mt-1 font-ledger text-xs text-slate-500">
             {orphans.sample.map((k) => (
               <li key={k}>{k.slice(0, 8)}…</li>
             ))}

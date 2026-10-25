@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Ban, Check, Download, IdCard, Inbox, RefreshCcw, X, XCircle } from 'lucide-react'
+import { Ban, Check, Download, IdCard, Inbox, RefreshCcw, ScanFace, X, XCircle } from 'lucide-react'
 import { useDebounced } from '@/shared/lib'
 import { useKycQueue, type KycApplication, type PressCard } from '@/entities/kyc'
 import { apiFetch } from '@/shared/api'
@@ -127,7 +127,9 @@ export default function ReviewDesk() {
   return (
     <section className="mt-8">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">Press review desk</h2>
+        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+          <ScanFace className="h-4 w-4 text-slate-400" /> Press review desk
+        </h2>
         <input
           className="input ml-auto w-56"
           placeholder="Search applicants…"
@@ -156,7 +158,11 @@ export default function ReviewDesk() {
           {notice}
         </p>
       ) : null}
-      {queue.isLoading ? <p className="mt-3">Loading queue…</p> : null}
+      {queue.isLoading ? (
+        <p className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+          <RefreshCcw className="h-3.5 w-3.5 animate-spin" /> Loading queue…
+        </p>
+      ) : null}
       {queue.isError ? <p className="mt-3 text-deny">Queue would not load.</p> : null}
       {!queue.isLoading && rows.length === 0 ? (
         <p className="mt-8 text-center text-sm text-slate-400">
@@ -177,7 +183,7 @@ export default function ReviewDesk() {
                   Photo
                 </button>
               ) : null}
-              <span className="font-ledger text-xs text-neutral-500">
+              <span className="font-ledger text-xs text-slate-500">
                 {app.organization || '—'} · {app.document_type} {app.document_number}
               </span>
               {app.decision_note ? (
@@ -253,7 +259,7 @@ export default function ReviewDesk() {
                   </button>
                 ) : null}
                 {app.card_serial && !app.card_revoked_at ? (
-                  <span className="font-ledger text-xs text-neutral-500">
+                  <span className="font-ledger text-xs text-slate-500">
                     Serial {app.card_serial} · prints {app.card_print_count}
                     {app.card_expires_at
                       ? ` · valid until ${new Date(app.card_expires_at).toLocaleDateString()}`
@@ -269,21 +275,21 @@ export default function ReviewDesk() {
         <button onClick={downloadCrl} className="btn btn-secondary">
           <Download className="h-3.5 w-3.5" /> Download CRL
         </button>
-        <span className="text-xs text-neutral-500">
+        <span className="text-xs text-slate-500">
           Revoked, expired, and superseded serials — offline JSON for gate checks.
         </span>
       </div>
       {photo ? (
-        <div className="mt-4 border border-signal bg-white p-2">
-          <p className="text-base font-semibold tracking-tight">Photo — {photo.name}</p>
-          <img src={photo.url} alt={`Applicant photo for ${photo.name}`} className="mt-1 max-h-64 w-auto" />
-          <button onClick={() => setPhoto(null)} className="mt-1 btn-chip mt-0.5">
-            Close
-          </button>
+        <div className="card mt-4 max-w-md p-3 shadow-md">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-base font-semibold tracking-tight">Photo — {photo.name}</p>
+            <button onClick={() => setPhoto(null)} className="btn-chip">Close</button>
+          </div>
+          <img src={photo.url} alt={`Applicant photo for ${photo.name}`} className="mt-2 max-h-64 rounded-lg w-auto" />
         </div>
       ) : null}
       {card ? (
-        <div className="mt-4 flex gap-4 border border-signal bg-white p-4">
+        <div className="card mt-4 flex gap-4 border-l-4 !border-l-signal p-4 shadow-md">
           {card.qrUrl ? (
             <img src={card.qrUrl} alt={`Press card QR for ${card.name}`} className="h-48 w-48 rounded-lg border border-slate-200" />
           ) : null}
@@ -296,7 +302,7 @@ export default function ReviewDesk() {
                 {card.expires ? ` · valid until ${new Date(card.expires).toLocaleDateString()}` : ''}
               </p>
             ) : null}
-            <p className="mt-2 text-sm">
+            <p className="mt-2 text-sm text-slate-500">
               Scan the QR at the gate; the JSON fallback covers damaged prints.
             </p>
           </div>

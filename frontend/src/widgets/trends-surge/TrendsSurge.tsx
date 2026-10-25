@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Activity, RefreshCcw, TriangleAlert, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { useSurge, useTrends } from '@/entities/site'
 
@@ -48,7 +49,9 @@ export default function TrendsSurge({
   return (
     <section className="mt-8">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight">Crowd flow</h2>
+        <h2 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+          <Activity className="h-4 w-4 text-slate-400" /> Crowd flow
+        </h2>
         <span className="text-sm text-slate-500">hourly crossings · {siteId === null ? 'no site selected' : `${hours}h window`}</span>
         <div className="ml-auto flex gap-1" role="group" aria-label="Trend window">
           {WINDOWS.map((h) => (
@@ -56,8 +59,8 @@ export default function TrendsSurge({
               key={h}
               onClick={() => setHours(h)}
               className={
-                'border px-2 py-1 text-xs font-medium ' +
-                (hours === h ? 'border-signal bg-signal text-white' : 'border-slate-300 bg-white hover:border-slate-400')
+                'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ' +
+                (hours === h ? 'border-signal bg-signal text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:bg-slate-50')
               }
             >
               {h}h
@@ -67,8 +70,10 @@ export default function TrendsSurge({
       </div>
 
       {siteId !== null && surge.data?.alerts.length ? (
-        <div role="alert" className="mt-3 rounded-xl border border-signal bg-white p-3 text-sm shadow-sm">
-          <p className="font-semibold text-deny">Surge alerts · last 24h</p>
+        <div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">
+          <p className="flex items-center gap-1.5 font-semibold text-saffron-ink">
+            <TriangleAlert className="h-3.5 w-3.5" /> Surge alerts · last 24h
+          </p>
           <ul className="mt-1 list-inside list-disc">
             {alerts.map((a) => (
               <li key={a.id}>
@@ -81,7 +86,11 @@ export default function TrendsSurge({
 
       {siteId !== null ? (
         <>
-          {trends.isLoading ? <p className="mt-2">Loading trend…</p> : null}
+          {trends.isLoading ? (
+            <p className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+              <RefreshCcw className="h-3.5 w-3.5 animate-spin" /> Loading trend…
+            </p>
+          ) : null}
           {trends.isError ? <p role="alert" className="mt-2 text-deny">Trend would not load.</p> : null}
           {buckets.length > 0 ? (
             <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -162,7 +171,8 @@ export default function TrendsSurge({
             </form>
           ) : null}
           {notice ? (
-            <p role="alert" className="mt-2 text-sm text-deny">
+            <p role="alert" className="mt-2 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+              <XCircle className="h-4 w-4 shrink-0" />
               {notice}
             </p>
           ) : null}
