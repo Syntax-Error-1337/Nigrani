@@ -166,6 +166,7 @@ export default function Kiosk({
   onPickGate?: (id: string) => void
 }) {
   const [payload, setPayload] = useState('')
+  const payloadRef = useRef<HTMLTextAreaElement>(null)
   const [card, setCard] = useState<PressCard | null>(null)
   const [direction, setDirection] = useState<'entry' | 'exit'>('entry')
   const [snapshotKey, setSnapshotKey] = useState('')
@@ -182,6 +183,10 @@ export default function Kiosk({
   const t = KIOSK_STRINGS[lang]
   const log = useGateLog(siteId, gateId)
   const gates = useGates(siteId, '')
+  // Scanners type into whatever is focused — keep the payload field ready.
+  useEffect(() => {
+    if (gateId !== null) payloadRef.current?.focus()
+  }, [gateId])
   const pending = useOutbox()
   const [flushing, setFlushing] = useState(false)
   const crl = useRef<CachedCrl | null>(null)
@@ -591,6 +596,7 @@ export default function Kiosk({
               {t.payloadLabel}
             </span>
             <textarea
+              ref={payloadRef}
               className="input font-ledger text-xs"
               rows={4}
               value={payload}
@@ -686,6 +692,9 @@ export default function Kiosk({
           <h2 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
             <History className="h-4 w-4 text-slate-400" />
             {t.recent}
+            {(log.data ?? []).length > 0 ? (
+              <span className="pill pill-neutral font-ledger">{(log.data ?? []).length}</span>
+            ) : null}
           </h2>
           {log.isLoading ? (
             <ol className="mt-2" aria-hidden="true">
