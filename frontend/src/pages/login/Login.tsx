@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, ShieldCheck, XCircle } from 'lucide-react'
 import { useSession, type SessionUser } from '@/shared/session'
@@ -6,6 +6,12 @@ import { useSession, type SessionUser } from '@/shared/session'
 export default function Login() {
   const navigate = useNavigate()
   const login = useSession((s) => s.login)
+  const user = useSession((s) => s.user)
+
+  // Already signed in: the sign-in page is a dead end — go to the console.
+  useEffect(() => {
+    if (user) navigate('/dashboard', { replace: true })
+  }, [user, navigate])
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
