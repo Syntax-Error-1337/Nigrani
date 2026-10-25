@@ -33,6 +33,26 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
     URL.revokeObjectURL(a.href)
     setReport('Site export downloaded')
   }
+
+  async function downloadCsv() {
+    setNotice(null)
+    if (siteId === null) {
+      setNotice('Select a site scope first')
+      return
+    }
+    const res = await apiFetch(`/sites/${siteId}/report.csv`)
+    if (!res.ok) {
+      setNotice(`CSV refused (${res.status})`)
+      return
+    }
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `site-${siteId}-daily.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+    setReport('Daily CSV downloaded')
+  }
   async function load() {
     setNotice(null)
     const res = await apiFetch('/admin/retention/policies')
@@ -157,6 +177,9 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
         </button>
         <button onClick={exportSite} className="btn btn-secondary">
           Export active site
+        </button>
+        <button onClick={downloadCsv} className="btn btn-secondary">
+          Daily CSV
         </button>
       </div>
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
