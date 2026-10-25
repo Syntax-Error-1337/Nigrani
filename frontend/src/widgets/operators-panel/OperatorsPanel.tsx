@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { KeyRound, Users } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { STORAGE_KEY, useSession } from '@/shared/session'
@@ -67,6 +67,12 @@ export default function OperatorsPanel() {
     }
     load()
   }
+
+  // Roster loads on open — no blank panel waiting on a button.
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <section className="mt-8">

@@ -22,7 +22,11 @@ test('login lands on the dashboard with KPI cards', async ({ page }) => {
 
 test('kiosk: manual entry records a crossing', async ({ page }) => {
   await login(page, 'gate')
-  // The kiosk section carries the action buttons.
+  // The gate roster is managed in Sites & gates; the kiosk only lights up
+  // once a post is selected (guard renders a pick-a-post empty state).
+  await page.getByRole('button', { name: 'Sites & gates' }).click()
+  // Pick the first gate post of the default site (seeded DB always has gates).
+  await page.locator('table').nth(1).locator('tbody tr').first().click()
   await page.getByRole('button', { name: 'Gate kiosk' }).click()
   const logManual = page.getByRole('button', { name: /log manual entry|मैनुअल प्रवेश दर्ज/i })
   await expect(logManual).toBeVisible()

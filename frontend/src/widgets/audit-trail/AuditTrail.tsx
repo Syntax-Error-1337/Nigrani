@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Anchor, Link2, ScrollText, ShieldCheck, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 
@@ -81,6 +81,12 @@ function detailLines(detail: unknown): [string, string][] {
     setVerdict('Chain head anchored — record the hash outside this system')
   }
 
+  // Load on open (and on scope/site switch) — the panel should never sit blank.
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, siteId])
+
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
@@ -120,6 +126,9 @@ function detailLines(detail: unknown): [string, string][] {
         }`}>{verdict}</p>
       ) : null}
       <ol className="mt-3 card divide-y divide-slate-100">
+        {rows === null ? (
+          <li className="px-4 py-6 text-center text-sm text-slate-400">Loading trail…</li>
+        ) : null}
         {(rows ?? []).map((e) => {
           const lines = detailLines(e.detail)
           return (

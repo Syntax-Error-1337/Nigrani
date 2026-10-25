@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Recycle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 
@@ -102,6 +102,12 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
     }
     setReport('Preview ran')
   }
+
+  // Policies load on open — no blank panel waiting on a button.
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function checkOrphans() {
     setCollected(null)

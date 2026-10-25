@@ -325,7 +325,10 @@ export default function SitesPanel({
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-slate-500 first-letter:uppercase">{gate.direction}</td>
-                    <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                    <td
+                      className="px-4 py-2.5"
+                      onClick={canWrite ? (e) => e.stopPropagation() : undefined}
+                    >
                       {canWrite ? (
                         <select
                           className="input w-full max-w-40 !px-1 !py-0.5 !text-xs"
