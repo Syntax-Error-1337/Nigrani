@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Lock } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import {  } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 
 interface SessionRow {
@@ -32,6 +32,12 @@ export default function SecurityPanel() {
       setSessions(body.sessions as SessionRow[])
     }
   }
+
+  // Sessions load on open — no blank panel waiting on a button.
+  useEffect(() => {
+    void loadSessions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function beginTotp() {
     setNotice(null)
@@ -98,9 +104,7 @@ export default function SecurityPanel() {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
-          <Lock className="h-4 w-4 text-slate-400" /> Security
-        </h2>
+        
         <button onClick={loadSessions} className="btn btn-secondary">
           List sessions
         </button>
@@ -114,7 +118,19 @@ export default function SecurityPanel() {
         <div className="mt-3 max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-sm text-sm">
           <p className="font-medium">Add Nigrani to your authenticator app</p>
           <p className="mt-2 break-all font-mono text-xs text-slate-600">{totpUri}</p>
-          <p className="mt-1 text-xs text-slate-500">Manual key: <span className="font-mono">{totpSecret}</span></p>
+          <p className="mt-1 text-xs text-slate-500">
+            Manual key: <span className="font-mono">{totpSecret}</span>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(totpSecret)
+                setOk('Manual key copied')
+              }}
+              className="btn-chip ml-2"
+            >
+              Copy key
+            </button>
+          </p>
           <div className="mt-3 flex gap-2">
             <input
               value={code}

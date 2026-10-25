@@ -18,41 +18,18 @@ import { useSession, type Role } from '@/shared/session'
 
 /// Sidebar navigation sections (s-S1). `roles` gates visibility; the
 /// section content reuses the role rules the panels already enforce.
-const NAV: { key: string; label: string; icon: typeof Gauge; roles: Role[] }[] = [
-  { key: 'overview', label: 'Overview', icon: LayoutDashboard, roles: ['SuperAdmin', 'SiteCommander', 'VerificationOfficer', 'GateOperator', 'ForensicAnalyst'] },
-  { key: 'sites', label: 'Sites & gates', icon: Network, roles: ['SuperAdmin', 'SiteCommander', 'VerificationOfficer', 'GateOperator', 'ForensicAnalyst'] },
-  { key: 'kiosk', label: 'Gate kiosk', icon: ScanLine, roles: ['SuperAdmin', 'SiteCommander', 'GateOperator'] },
-  { key: 'review', label: 'Press review desk', icon: ClipboardList, roles: ['SuperAdmin', 'VerificationOfficer'] },
-  { key: 'duty', label: 'Duty roster', icon: BadgeCheck, roles: ['VerificationOfficer'] },
-  { key: 'bench', label: 'Forensic bench', icon: Radar, roles: ['SuperAdmin', 'ForensicAnalyst'] },
-  { key: 'audit', label: 'Audit trail', icon: ShieldCheck, roles: ['SuperAdmin', 'SiteCommander'] },
-  { key: 'retention', label: 'Retention', icon: Recycle, roles: ['SuperAdmin'] },
-  { key: 'operators', label: 'Operators', icon: Users, roles: ['SuperAdmin'] },
-  { key: 'security', label: 'Security', icon: KeyRound, roles: ['SuperAdmin', 'SiteCommander', 'VerificationOfficer', 'GateOperator', 'ForensicAnalyst'] },
+const NAV: { key: string; label: string; icon: typeof Gauge; roles: Role[]; brief: string }[] = [
+  { key: 'overview', label: 'Overview', icon: LayoutDashboard, roles: ['SuperAdmin', 'SiteCommander', 'VerificationOfficer', 'GateOperator', 'ForensicAnalyst'], brief: 'Live status — sites, gates, crossings, and open cases.' },
+  { key: 'sites', label: 'Sites & gates', icon: Network, roles: ['SuperAdmin', 'SiteCommander', 'VerificationOfficer', 'GateOperator', 'ForensicAnalyst'], brief: 'Sites, gates, and duty rosters. Create protest sites and their entry posts here.' },
+  { key: 'kiosk', label: 'Gate kiosk', icon: ScanLine, roles: ['SuperAdmin', 'SiteCommander', 'GateOperator'], brief: 'Verify arrivals against the gate roster. Select your post to begin screening.' },
+  { key: 'review', label: 'Press review desk', icon: ClipboardList, roles: ['SuperAdmin', 'VerificationOfficer'], brief: 'Media access requests land here for inspection and approval.' },
+  { key: 'duty', label: 'Duty roster', icon: BadgeCheck, roles: ['VerificationOfficer'], brief: 'Gates you are assigned to staff — verify entrants at your post.' },
+  { key: 'bench', label: 'Forensic bench', icon: Radar, roles: ['SuperAdmin', 'ForensicAnalyst'], brief: 'Similarity search over gate captures, incident log, and gate heatmap.' },
+  { key: 'audit', label: 'Audit trail', icon: ShieldCheck, roles: ['SuperAdmin', 'SiteCommander'], brief: 'Append-only action ledger — verify the hash chain or anchor the head.' },
+  { key: 'retention', label: 'Retention', icon: Recycle, roles: ['SuperAdmin'], brief: 'Purge schedules per entity, snapshot orphans, and site export packs.' },
+  { key: 'operators', label: 'Operators', icon: Users, roles: ['SuperAdmin'], brief: 'Provision accounts, activate/deactivate, unlock, and sign out sessions.' },
+  { key: 'security', label: 'Security', icon: KeyRound, roles: ['SuperAdmin', 'SiteCommander', 'VerificationOfficer', 'GateOperator', 'ForensicAnalyst'], brief: 'Your sessions and two-factor setup.' },
 ]
-
-const ROLE_PANELS: Record<Role, { heading: string; brief: string }> = {
-  SuperAdmin: {
-    heading: 'System ledger',
-    brief: 'Sites, gates, and accounts. Create protest sites and their entry gates here.',
-  },
-  SiteCommander: {
-    heading: 'Site command',
-    brief: 'Your protest site at a glance — gates, directions, and throughput posts.',
-  },
-  GateOperator: {
-    heading: 'Gate kiosk',
-    brief: 'Verify arrivals against the gate roster. Select your post to begin screening.',
-  },
-  VerificationOfficer: {
-    heading: 'Press review desk',
-    brief: 'Media access requests land here for inspection and approval.',
-  },
-  ForensicAnalyst: {
-    heading: 'Forensic bench',
-    brief: 'Similarity search over gate captures, incident log, and gate heatmap.',
-  },
-}
 
 export default function Dashboard() {
   const user = useSession((s) => s.user)
@@ -173,7 +150,7 @@ export default function Dashboard() {
             <div className="hidden items-center gap-3 md:flex">
               <h1 className="text-sm font-medium text-white/90">{current.label}</h1>
               <div className="h-4 w-px bg-white/10" />
-              <p className="max-w-md truncate text-xs text-white/60">{ROLE_PANELS[user.role].brief}</p>
+              <p className="max-w-md truncate text-xs text-white/60">{current.brief}</p>
             </div>
             <div className="flex items-center gap-3">
               {sites.length > 0 ? SitePicker : null}

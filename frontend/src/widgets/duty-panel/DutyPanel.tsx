@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { BadgeCheck, Inbox } from 'lucide-react'
+import { Inbox } from 'lucide-react'
 import Kiosk from '@/widgets/kiosk'
 import { apiFetch } from '@/shared/api'
 
@@ -29,9 +29,7 @@ export default function DutyPanel() {
   const selected = gates.find((g) => g.gate_id === gateId) ?? null
   return (
     <section className="mt-8">
-      <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
-        <BadgeCheck className="h-4 w-4 text-slate-400" /> Gate duty
-      </h2>
+      
       <p className="mt-1 text-sm text-slate-500">
         Gates you are assigned to staff. Pick one to verify entrants at that post.
       </p>

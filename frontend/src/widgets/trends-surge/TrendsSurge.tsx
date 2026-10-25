@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Activity, RefreshCcw, TriangleAlert, XCircle } from 'lucide-react'
+import { RefreshCcw, TriangleAlert, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { useSurge, useTrends } from '@/entities/site'
 
@@ -49,9 +49,7 @@ export default function TrendsSurge({
   return (
     <section className="mt-8">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
-          <Activity className="h-4 w-4 text-slate-400" /> Crowd flow
-        </h2>
+        
         <span className="text-sm text-slate-500">hourly crossings · {siteId === null ? 'no site selected' : `${hours}h window`}</span>
         <div className="ml-auto flex gap-1" role="group" aria-label="Trend window">
           {WINDOWS.map((h) => (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, FileDown, Flame, Link2, Radar, Siren, ScanFace, XCircle } from 'lucide-react'
+import { CheckCircle2, FileDown, Flame, Link2, Siren, ScanFace, XCircle } from 'lucide-react'
 import { onIncidentEvent } from '@/shared/lib'
 import { apiFetch } from '@/shared/api'
 
@@ -283,9 +283,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
 
   return (
     <section className="mt-8">
-      <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
-        <Radar className="h-4 w-4 text-slate-400" /> Forensic bench
-      </h2>
+      
       {notice ? (
         <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
           <XCircle className="mt-0.5 h-4 w-4 shrink-0" />

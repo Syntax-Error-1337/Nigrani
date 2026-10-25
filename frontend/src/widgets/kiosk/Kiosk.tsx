@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDownLeft, ArrowUpRight, Camera, DoorOpen, CheckCircle2, ClipboardPaste, CornerDownLeft, History, ImageOff, RefreshCw, ScanLine, ScanSearch, Upload, XCircle } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Camera, CheckCircle2, ClipboardPaste, CornerDownLeft, History, ImageOff, RefreshCw, ScanLine, ScanSearch, Upload, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { useGateLog } from '@/entities/gate-log'
 import type { PressCard } from '@/entities/kyc'
@@ -437,10 +437,7 @@ export default function Kiosk({
 
   return (
     <section className="mt-8">
-      <div className="flex items-center gap-3">
-        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
-          <DoorOpen className="h-4 w-4 text-slate-400" /> Gate kiosk
-        </h2>
+      <div className="flex items-center justify-end gap-3">
         {gateId === null ? (
           <span className="pill pill-warn">no gate post selected</span>
         ) : null}

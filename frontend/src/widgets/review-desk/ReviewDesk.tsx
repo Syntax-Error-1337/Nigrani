@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Ban, Check, Download, IdCard, Inbox, RefreshCcw, ScanFace, X, XCircle } from 'lucide-react'
+import { Ban, Check, Download, IdCard, Inbox, RefreshCcw, X, XCircle } from 'lucide-react'
 import { useDebounced } from '@/shared/lib'
 import { useKycQueue, type KycApplication, type PressCard } from '@/entities/kyc'
 import { apiFetch } from '@/shared/api'
@@ -127,9 +127,7 @@ export default function ReviewDesk() {
   return (
     <section className="mt-8">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
-          <ScanFace className="h-4 w-4 text-slate-400" /> Press review desk
-        </h2>
+        
         <input
           className="input ml-auto w-56"
           placeholder="Search applicants…"

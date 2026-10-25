@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Anchor, Link2, ScrollText, ShieldCheck, XCircle } from 'lucide-react'
+import { Anchor, Link2, ShieldCheck, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 
 interface AuditEntry {
@@ -90,9 +90,6 @@ function detailLines(detail: unknown): [string, string][] {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
-          <ScrollText className="h-4 w-4 text-slate-400" /> Audit trail
-        </h2>
         {global === true ? (
           <button
             onClick={() => setScope(scope === 'all' ? 'site' : 'all')}

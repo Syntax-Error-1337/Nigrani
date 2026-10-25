@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Recycle } from 'lucide-react'
+import {  } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 
 interface Policy {
@@ -145,9 +145,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
-          <Recycle className="h-4 w-4 text-slate-400" /> Retention
-        </h2>
+        
         <button onClick={load} className="btn btn-secondary">
           Load policies
         </button>
