@@ -225,7 +225,7 @@ function PolicyRow({
         />
       </td>
       <td className="px-3 py-1">
-        <button onClick={() => onSave(policy.entity, days)} className="border-slate-300 bg-white px-2 py-1 text-xs font-medium align-middle hover:border-slate-400">
+        <button onClick={() => onSave(policy.entity, days)} className="btn-chip">
           Save
         </button>
       </td>

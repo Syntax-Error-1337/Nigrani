@@ -135,13 +135,13 @@ export default function TrendsSurge({
               </label>
               <input
                 id="surge-threshold"
-                className="w-24 border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                className="input w-24"
                 placeholder={threshold === null ? 'off' : String(threshold)}
                 value={thresholdInput}
                 onChange={(e) => setThresholdInput(e.target.value)}
                 inputMode="numeric"
               />
-              <button type="submit" className="bg-signal px-3 py-1.5 text-sm font-medium text-white hover:bg-signal-deep">
+              <button type="submit" className="btn btn-primary">
                 Set
               </button>
               {threshold !== null ? (
@@ -151,7 +151,7 @@ export default function TrendsSurge({
                     setThresholdInput('')
                     void saveThreshold(null)
                   }}
-                  className="border border-slate-300 bg-white px-3 py-1.5 text-sm hover:border-slate-400"
+                  className="btn btn-secondary"
                 >
                   Clear
                 </button>

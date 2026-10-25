@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDownLeft, ArrowUpRight, Camera, CheckCircle2, ClipboardPaste, CornerDownLeft, History, ImageOff, RefreshCw, ScanSearch, XCircle } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Camera, CheckCircle2, ClipboardPaste, CornerDownLeft, History, ImageOff, RefreshCw, ScanSearch, Upload, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { useGateLog } from '@/entities/gate-log'
 import type { PressCard } from '@/entities/kyc'
@@ -437,7 +437,7 @@ export default function Kiosk({
 
   return (
     <section className="mt-8">
-      <div className="flex items-baseline gap-3">
+      <div className="flex items-center gap-3">
         <h2 className="text-2xl font-semibold tracking-tight">Gate kiosk</h2>
         {offline ? (
           <span className="pill pill-archived">
@@ -450,7 +450,7 @@ export default function Kiosk({
             setLang(next)
             localStorage.setItem('sg-lang', next)
           }}
-          className="border border-slate-300 bg-white px-2 py-0.5 text-xs font-medium hover:border-slate-400"
+          className="btn btn-secondary !px-2 !py-0.5 text-xs"
         >
           {lang === 'en' ? 'हिंदी' : 'English'}
         </button>
@@ -472,13 +472,17 @@ export default function Kiosk({
       </div>
       {pending.length > 0 ? (
         <details className="mt-2 font-ledger text-xs">
-          <summary className="cursor-pointer uppercase">Queued crossings</summary>
-          <ol className="mt-1 divide-y divide-neutral-200">
+          <summary className="cursor-pointer uppercase text-slate-600 transition-colors hover:text-signal">
+            {t.queued} ({pending.length})
+          </summary>
+          <ol className="mt-1 divide-y divide-slate-100">
             {pending.map((p) => (
-              <li key={p.id} className="py-1">
-                <span className="uppercase">{p.direction}</span> · {p.method === 'press_card' ? 'card' : 'manual'}
-                {p.method === 'press_card' && p.press_card ? ` — ${p.press_card.full_name}` : null}
-                {' '}· {new Date(p.queued_at).toLocaleTimeString()} · {t.try} {p.attempts}
+              <li key={p.id} className="flex items-center gap-2 py-1">
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 uppercase">{p.direction}</span>
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase">{p.method === 'press_card' ? 'card' : 'manual'}</span>
+                {p.method === 'press_card' && p.press_card ? <span className="truncate font-semibold">{p.press_card.full_name}</span> : null}
+                <span className="tabular-nums text-slate-500">{new Date(p.queued_at).toLocaleTimeString()}</span>
+                <span className="text-slate-400">{t.try} {p.attempts}</span>
               </li>
             ))}
           </ol>
@@ -528,31 +532,36 @@ export default function Kiosk({
               </select>
             </label>
           </div>
-          <label className="mt-3 flex flex-col gap-1 text-sm">
+          <div className="mt-3 flex flex-col gap-1 text-sm">
             <span className="flex items-center gap-1.5">
               <Camera className="h-3.5 w-3.5 text-slate-400" />
               {t.snapshotLabel}
             </span>
-            <input
-              type="file"
-              accept="image/jpeg"
-              disabled={uploading}
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) uploadSnapshot(f)
-              }}
-            />
-          </label>
+            <label
+              className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-3 py-2.5 text-sm text-slate-500 transition-colors hover:border-signal hover:bg-blue-50/50 hover:text-signal ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+            >
+              {uploading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              {uploading ? t.waiting : 'Choose file or drop'}
+              <input
+                type="file"
+                accept="image/jpeg"
+                className="sr-only"
+                disabled={uploading}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) uploadSnapshot(f)
+                }}
+              />
+            </label>
+          </div>
           {snapshotKey ? (
-            <p className="mt-1 font-ledger text-xs">
-              {t.staged} {snapshotKey}
+            <p className="mt-1 flex items-center gap-1.5 font-ledger text-xs">
+              <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-ok">{t.staged}</span>
+              <span className="truncate">{snapshotKey}</span>
               {shareUrl ? (
-                <>
-                  {' — '}
-                  <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">
-                    {t.openCapture}
-                  </a>
-                </>
+                <a className="shrink-0 underline transition-colors hover:text-signal" href={shareUrl} target="_blank" rel="noreferrer">
+                  {t.openCapture}
+                </a>
               ) : null}
             </p>
           ) : null}
@@ -585,37 +594,37 @@ export default function Kiosk({
               <span className="mt-1 block">No crossings recorded at this gate yet.</span>
             </p>
           ) : null}
-          <ol className="mt-2 divide-y divide-neutral-200">
+          <ol className="mt-2 divide-y divide-slate-100">
             {(log.data ?? []).map((e) => (
-              <li key={e.id} className="flex items-center gap-2 py-1 font-ledger text-xs">
-                <span className="flex items-center gap-1 uppercase">
+              <li key={e.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 font-ledger text-xs transition-colors hover:bg-slate-50/70">
+                <span className="flex w-20 shrink-0 items-center gap-1 uppercase">
                   {e.direction === 'exit'
                     ? <ArrowUpRight className="h-3 w-3 text-slate-400" />
                     : <ArrowDownLeft className="h-3 w-3 text-signal" />}
                   {e.direction}
                 </span>
-                <span>{e.method === 'press_card' ? 'card' : 'manual'}</span>
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-600">
+                  {e.method === 'press_card' ? 'card' : 'manual'}
+                </span>
                 {e.holder_name ? (
-                  <span className="font-semibold" title={e.holder_org ?? ''}>{e.holder_name}</span>
+                  <span className="truncate font-semibold" title={e.holder_org ?? ''}>{e.holder_name}</span>
                 ) : null}
                 {e.snapshot_key ? (
                   <button
                     onClick={() => openPreview(e.snapshot_key)}
-                    className="border-slate-300 bg-white px-1 text-xs font-medium"
+                    className="btn-chip ml-auto shrink-0"
                   >
-                    Photo
+                    <Camera className="h-3 w-3" /> Photo
                   </button>
                 ) : null}
-                <span className="ml-auto">{new Date(e.recorded_at).toLocaleTimeString()}</span>
+                <span className={`${e.snapshot_key ? '' : 'ml-auto'} shrink-0 tabular-nums text-slate-500`}>{new Date(e.recorded_at).toLocaleTimeString()}</span>
               </li>
             ))}
           </ol>
           {preview ? (
-            <div className="mt-2 border border-signal bg-white p-2">
-              <img src={preview.url} alt={`Gate capture ${preview.key}`} className="max-h-64 w-auto" />
-              <button onClick={() => setPreview(null)} className="mt-1 border-slate-300 bg-white px-2 py-1 text-xs font-medium align-middle hover:border-slate-400">
-                Close
-              </button>
+            <div className="mt-2 rounded-xl border border-signal bg-white p-2 shadow-md">
+              <img src={preview.url} alt={`Gate capture ${preview.key}`} className="max-h-64 rounded-lg w-auto" />
+              <button onClick={() => setPreview(null)} className="btn-chip mt-2">Close</button>
             </div>
           ) : null}
         </div>

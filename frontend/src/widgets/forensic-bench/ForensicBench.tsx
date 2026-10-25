@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Radar } from 'lucide-react'
+import { CheckCircle2, FileDown, Flame, Link2, Radar, Siren, ScanFace, XCircle } from 'lucide-react'
 import { onIncidentEvent } from '@/shared/lib'
 import { apiFetch } from '@/shared/api'
 
@@ -287,63 +287,58 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
         <Radar className="h-4 w-4 text-slate-400" /> Forensic bench
       </h2>
       {notice ? (
-        <p role="alert" className="mt-3 border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+        <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
+          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {notice}
         </p>
       ) : null}
       {ok ? (
-        <p className="mt-3 border border-ok bg-green-50 px-3 py-2 text-sm text-ok">{ok}</p>
+        <p className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-ok">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          {ok}
+        </p>
       ) : null}
       <div className="mt-3 grid gap-4 md:grid-cols-2">
-        <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
-          <h3 className="text-base font-semibold tracking-tight">Face search</h3>
+        <div className="card card-hover p-4">
+          <h3 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
+            <ScanFace className="h-4 w-4 text-slate-400" /> Face search
+          </h3>
           <label className="mt-2 flex flex-col gap-1 text-sm">
             Suspect embedding (512 floats)
             <textarea
-              className="border border-slate-300 bg-white px-3 py-2 font-ledger text-xs"
+              className="input font-ledger text-xs"
               rows={4}
               value={vectorText}
               onChange={(e) => setVectorText(e.target.value)}
               placeholder="0.11, -0.02, … (512 numbers)"
             />
           </label>
-          <button onClick={search} className="mt-2 bg-signal px-4 py-2 text-sm font-medium text-white hover:bg-signal-deep">
+          <button onClick={search} className="btn btn-primary mt-2">
             Search attendees
           </button>
           {hits !== null && hits.length === 0 ? (
-            <p className="mt-2 text-sm">No matches within threshold.</p>
+            <p className="mt-2 text-sm text-slate-500">No matches within threshold.</p>
           ) : null}
-          <ol className="mt-2 divide-y divide-neutral-200">
-            {(hits ?? []).map((h) => (
-              <li key={h.id} className="flex items-baseline gap-2 py-1 font-ledger text-xs">
-                <span>{h.distance.toFixed(4)}</span>
+          <ol className="mt-2 divide-y divide-slate-100">
+            {(hits ?? []).map((h, rank) => (
+              <li key={h.id} className="flex items-center gap-2 py-1.5 font-ledger text-xs transition-colors hover:bg-slate-50/70">
+                <span className="w-5 text-right text-slate-400">{rank + 1}</span>
+                <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5">{h.distance.toFixed(4)}</span>
                 <span className="truncate">{h.application_id ?? h.entry_log_id ?? h.id}</span>
               </li>
             ))}
           </ol>
         </div>
-        <div className="border border-slate-200 rounded-xl bg-white shadow-sm p-4">
-          <h3 className="text-base font-semibold tracking-tight">Incidents</h3>
+        <div className="card card-hover p-4">
+          <h3 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
+            <Siren className="h-4 w-4 text-slate-400" /> Incidents
+          </h3>
           <form onSubmit={fileIncident} className="mt-2 flex flex-col gap-2">
-            <input
-              className="border border-slate-300 bg-white px-3 py-2 text-sm"
-              placeholder="Title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <input
-              className="border border-slate-300 bg-white px-3 py-2 text-sm"
-              placeholder="Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-            <button type="submit" className="btn btn-primary">
-              File incident
-            </button>
+            <input className="input" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <input className="input" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
+            <button type="submit" className="btn btn-primary">File incident</button>
           </form>
-          <button onClick={loadIncidents} className="mt-2 border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
-            Refresh incidents
-          </button>
+          <button onClick={loadIncidents} className="btn btn-secondary mt-2">Refresh incidents</button>
           <div className="mt-2 flex flex-wrap gap-1">
             {(['all', 'open', 'investigating', 'resolved', 'closed'] as const).map((s) => (
               <button
@@ -352,47 +347,52 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                   setStatusTab(s)
                   setNotice(null)
                 }}
-                className={`rounded-full px-2 5 py-0.5 text-[11px] font-medium ${statusTab === s ? 'bg-navy text-white' : 'border border-slate-300 text-slate-600'}`}
+                className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors ${statusTab === s ? 'border-navy bg-navy text-white' : 'border-slate-300 text-slate-600 hover:border-slate-400 hover:bg-slate-50'}`}
               >
                 {s}
               </button>
             ))}
             <button
               onClick={() => setMineOnly((v) => !v)}
-              className={`border px-2 py-0.5 font-ledger text-[11px] uppercase ${mineOnly ? 'bg-navy text-white' : 'border border-slate-300 text-slate-600'}`}
+              className={`rounded-full border px-2.5 py-0.5 font-ledger text-[11px] uppercase transition-colors ${mineOnly ? 'border-navy bg-navy text-white' : 'border-slate-300 text-slate-600 hover:border-slate-400 hover:bg-slate-50'}`}
             >
               Mine
             </button>
           </div>
-          <ol className="mt-2 divide-y divide-neutral-200">
+          {(incidents ?? []).length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">No incidents match this view.</p>
+          ) : null}
+          <ol className="mt-2 space-y-2">
             {(incidents ?? []).map((i) => (
-              <li key={i.id} className="py-2 text-sm">
-                <span className="font-semibold">{i.title}</span>{' '}
-                <span className="border-slate-200 border bg-white px-1 text-[11px] font-medium">{i.status}</span>
-                {i.overdue ? <span className="border bg-white px-1 text-[11px] font-medium text-deny">SLA breached</span> : null}
-                {i.escalated_at ? <span className="border border-slate-200 bg-white px-1 text-[11px] font-medium text-deny">escalated</span> : null}
-                {i.merged_into ? <span className="border border-slate-200 bg-white px-1 font-ledger text-[11px] text-neutral-500">merged → {i.merged_into.slice(0, 8)}</span> : null}
-                {i.sla_due_at && !i.merged_into ? <span className="font-ledger text-[11px] text-neutral-500">SLA {new Date(i.sla_due_at).toLocaleDateString()}</span> : null}
-                {i.assigned_to ? <span className="font-ledger text-xs"> → {i.assigned_to.slice(0, 8)}</span> : null}
-                {i.description ? <span className="text-neutral-500"> — {i.description}</span> : null}
-                <div className="mt-1 flex flex-wrap gap-1">
+              <li key={i.id} className="card card-hover p-3 text-sm">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="font-semibold">{i.title}</span>
+                  <span className={`pill ${i.status === 'open' ? 'pill-open' : i.status === 'investigating' ? 'pill-active' : i.status === 'resolved' ? 'pill-ok' : 'pill-neutral'}`}>{i.status}</span>
+                  {i.overdue ? <span className="pill pill-archived">SLA breached</span> : null}
+                  {i.escalated_at ? <span className="pill pill-warn">escalated</span> : null}
+                  {i.merged_into ? <span className="pill pill-neutral font-ledger">merged → {i.merged_into.slice(0, 8)}</span> : null}
+                  {i.sla_due_at && !i.merged_into ? <span className="font-ledger text-[11px] text-slate-500">SLA {new Date(i.sla_due_at).toLocaleDateString()}</span> : null}
+                  {i.assigned_to ? <span className="font-ledger text-xs text-slate-600"> → {i.assigned_to.slice(0, 8)}</span> : null}
+                </div>
+                {i.description ? <p className="mt-0.5 text-slate-500">{i.description}</p> : null}
+                <div className="mt-2 flex flex-wrap gap-1">
                   {i.merged_into ? null : (NEXT[i.status] ?? []).map((s) => (
-                    <button key={s} onClick={() => transition(i.id, s)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
+                    <button key={s} onClick={() => transition(i.id, s)} className="btn-chip">
                       → {s}
                     </button>
                   ))}
-                  <button onClick={() => loadLinks(i.id)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
-                    Links ({(links[i.id] ?? []).length})
+                  <button onClick={() => loadLinks(i.id)} className="btn-chip">
+                    <Link2 className="h-3 w-3" /> Links ({(links[i.id] ?? []).length})
                   </button>
-                  <button onClick={() => exportPack(i.id)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
-                    Export pack
+                  <button onClick={() => exportPack(i.id)} className="btn-chip">
+                    <FileDown className="h-3 w-3" /> Export pack
                   </button>
                 </div>
                 {i.merged_into ? null : (
-                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
                     <select
                       aria-label={`Merge ${i.title} into`}
-                      className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"
+                      className="input !w-auto !px-2 !py-0.5 font-ledger !text-xs"
                       value={mergeInto[i.id] ?? ''}
                       onChange={(e) => setMergeInto((p) => ({ ...p, [i.id]: e.target.value }))}
                     >
@@ -401,17 +401,14 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                         <option key={o.id} value={o.id}>{o.title} ({o.status})</option>
                       ))}
                     </select>
-                    <button
-                      onClick={() => mergeCase(i.id, mergeInto[i.id] ?? '')}
-                      className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400"
-                    >
+                    <button onClick={() => mergeCase(i.id, mergeInto[i.id] ?? '')} className="btn-chip">
                       Merge
                     </button>
                   </div>
                 )}
-                <div className="mt-1 flex flex-wrap gap-1">
+                <div className="mt-1.5 flex flex-wrap gap-1">
                   <select
-                    className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"
+                    className="input !w-auto !px-2 !py-0.5 font-ledger !text-xs"
                     value={assignee[i.id] ?? ''}
                     onChange={(e) => setAssignee((p) => ({ ...p, [i.id]: e.target.value }))}
                     onFocus={() => {
@@ -425,20 +422,22 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                       </option>
                     ))}
                   </select>
-                  <button onClick={() => assign(i.id)} className="bg-signal px-2 py-0.5 text-[11px] font-medium text-white hover:bg-signal-deep">
-                    Assign
-                  </button>
+                  <button onClick={() => assign(i.id)} className="btn-chip-solid">Assign</button>
                 </div>
                 {(links[i.id] ?? []).length > 0 ? (
-                  <ol className="mt-1 font-ledger text-xs">
+                  <ol className="mt-1.5 space-y-0.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2 font-ledger text-xs">
                     {(links[i.id] ?? []).map((l) => (
-                      <li key={l.id}>[{l.kind}] {l.ref_id} {l.note}</li>
+                      <li key={l.id} className="flex gap-2">
+                        <span className="rounded bg-white px-1 font-medium text-slate-600">{l.kind}</span>
+                        <span className="truncate">{l.ref_id}</span>
+                        {l.note ? <span className="truncate text-slate-500">{l.note}</span> : null}
+                      </li>
                     ))}
                   </ol>
                 ) : null}
-                <div className="mt-1 flex flex-wrap gap-1">
+                <div className="mt-1.5 flex flex-wrap gap-1">
                   <select
-                    className="border border-slate-300 bg-white px-1 py-0.5 font-ledger text-xs hover:border-slate-400"
+                    className="input !w-auto !px-2 !py-0.5 font-ledger !text-xs"
                     value={linkKind[i.id] ?? 'note'}
                     onChange={(e) => setLinkKind((p) => ({ ...p, [i.id]: e.target.value }))}
                   >
@@ -448,32 +447,30 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                     <option value="snapshot">snapshot</option>
                   </select>
                   <input
-                    className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"
+                    className="input !w-32 !px-2 !py-0.5 font-ledger !text-xs"
                     placeholder="ref id / key"
                     value={linkRef[i.id] ?? ''}
                     onChange={(e) => setLinkRef((p) => ({ ...p, [i.id]: e.target.value }))}
                   />
                   <input
-                    className="border border-slate-300 bg-white px-2 py-0.5 font-ledger text-xs hover:border-slate-400"
+                    className="input !w-28 !px-2 !py-0.5 font-ledger !text-xs"
                     placeholder="note"
                     value={linkNote[i.id] ?? ''}
                     onChange={(e) => setLinkNote((p) => ({ ...p, [i.id]: e.target.value }))}
                   />
-                  <button onClick={() => addLink(i.id)} className="border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400">
-                    Attach
-                  </button>
+                  <button onClick={() => addLink(i.id)} className="btn-chip">Attach</button>
                 </div>
               </li>
             ))}
           </ol>
         </div>
       </div>
-      <div className="mt-4 border border-slate-200 rounded-xl bg-white shadow-sm p-4">
-        <div className="flex items-baseline gap-3">
-          <h3 className="text-base font-semibold tracking-tight">Gate heat (24h)</h3>
-          <button onClick={loadHeat} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
-            Load heatmap
-          </button>
+      <div className="card card-hover mt-4 p-4">
+        <div className="flex items-center gap-3">
+          <h3 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
+            <Flame className="h-4 w-4 text-slate-400" /> Gate heat (24h)
+          </h3>
+          <button onClick={loadHeat} className="btn btn-secondary">Load heatmap</button>
         </div>
         {(heat ?? []).length > 0 ? (
           <table className="mt-2 w-full font-ledger text-xs">
@@ -486,18 +483,18 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
               </tr>
             </thead>
             <tbody>
-              {(heat ?? []).map((g, i) => {
+              {(heat ?? []).map((g) => {
                 const total = g.entries + g.exits
                 const max = Math.max(...(heat ?? []).map((h) => h.entries + h.exits), 1)
                 return (
-                  <tr key={g.gate_id} className="border-t border-neutral-200">
-                    <td className="py-1 uppercase">{g.gate_name}</td>
-                    <td>{g.entries}</td>
-                    <td>{g.exits}</td>
+                  <tr key={g.gate_id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
+                    <td className="py-1.5 uppercase">{g.gate_name}</td>
+                    <td className="tabular-nums">{g.entries}</td>
+                    <td className="tabular-nums">{g.exits}</td>
                     <td className="w-40">
                       <span
-                        className={`inline-block h-3 rounded-sm ${i === 0 && max === total && total > 0 ? 'bg-signal' : 'bg-signal/60'}`}
-                        style={{ width: `${Math.max(2, Math.round((total / max) * 140))}px` }}
+                        className="block h-2.5 rounded-full bg-signal transition-all"
+                        style={{ width: `${Math.max(4, Math.round((total / max) * 140))}px`, opacity: total / max }}
                       />
                     </td>
                   </tr>
@@ -506,7 +503,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
             </tbody>
           </table>
         ) : (
-          <p className="mt-2 text-sm">No heat loaded yet.</p>
+          <p className="mt-2 text-sm text-slate-500">No heat loaded yet — pull the last 24 hours.</p>
         )}
       </div>
     </section>

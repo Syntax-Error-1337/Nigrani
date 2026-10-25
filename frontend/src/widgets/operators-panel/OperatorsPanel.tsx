@@ -89,7 +89,7 @@ export default function OperatorsPanel() {
                 locked
               </span>
             ) : null}
-            <button onClick={() => flip(op)} className="ml-auto border-slate-300 bg-white px-2 py-1 text-xs font-medium align-middle hover:border-slate-400">
+            <button onClick={() => flip(op)} className="ml-auto btn-chip">
               {op.active ? 'Deactivate' : 'Reactivate'}
             </button>
             {op.locked_until ? (
@@ -206,7 +206,7 @@ export function PasswordDialog() {
         <button
           type="button"
           onClick={signOutAll}
-          className="border border-slate-300 bg-white px-4 py-2 text-sm font-medium align-middle hover:border-slate-400"
+          className="btn btn-secondary"
         >
           Sign out all sessions
         </button>

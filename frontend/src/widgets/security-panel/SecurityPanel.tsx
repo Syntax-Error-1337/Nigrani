@@ -98,10 +98,10 @@ export default function SecurityPanel() {
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
         <h2 className="text-2xl font-semibold tracking-tight">Security</h2>
-        <button onClick={loadSessions} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+        <button onClick={loadSessions} className="btn btn-secondary">
           List sessions
         </button>
-        <button onClick={beginTotp} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+        <button onClick={beginTotp} className="btn btn-secondary">
           Set up 2FA
         </button>
       </div>
@@ -136,7 +136,7 @@ export default function SecurityPanel() {
             inputMode="numeric"
             className="w-32 rounded-md border border-slate-300 px-2 py-1 text-sm"
           />
-          <button onClick={disableTotp} className="border border-slate-300 bg-white px-3 py-1 text-xs font-medium hover:border-slate-400">
+          <button onClick={disableTotp} className="btn btn-secondary">
             Disable 2FA
           </button>
         </div>
@@ -152,7 +152,7 @@ export default function SecurityPanel() {
               {s.current ? (
                 <span className="rounded-full bg-saffron-mist px-2 py-0.5 text-[10px] font-medium text-saffron-ink">this device</span>
               ) : (
-                <button onClick={() => revoke(s.session_id)} className="ml-auto border border-slate-300 bg-white px-2 py-0.5 font-medium hover:border-slate-400">
+                <button onClick={() => revoke(s.session_id)} className="ml-auto btn-chip">
                   Revoke
                 </button>
               )}

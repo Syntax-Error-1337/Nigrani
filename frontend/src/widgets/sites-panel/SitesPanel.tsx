@@ -153,7 +153,7 @@ export default function SitesPanel({
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Protest sites</h2>
           <input
-            className="ml-auto w-56 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-signal"
+            className="input ml-auto w-56"
             placeholder="Search sites…"
             value={siteSearch}
             onChange={(e) => setSiteSearch(e.target.value)}
@@ -161,7 +161,7 @@ export default function SitesPanel({
           {canWrite ? (
             <button
               onClick={() => setShowArchivedSites((v) => !v)}
-              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium hover:border-slate-400"
+              className="btn btn-secondary"
             >
               {showArchivedSites ? 'Hide archived' : 'Show archived'}
             </button>
@@ -214,7 +214,7 @@ export default function SitesPanel({
                             e.stopPropagation()
                             void flipSite(site)
                           }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400"
+                          className="btn-chip"
                         >
                           {site.archived_at ? <ArchiveRestore className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
                           {site.archived_at ? 'Restore' : 'Archive'}
@@ -232,7 +232,7 @@ export default function SitesPanel({
             <label className="flex flex-col gap-1 text-sm">
               New site
               <input
-                className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2"
+                className="input w-56"
                 value={newSite.name}
                 onChange={(e) => setNewSite({ ...newSite, name: e.target.value })}
                 placeholder="e.g. Ramlila Maidan"
@@ -241,7 +241,7 @@ export default function SitesPanel({
             <label className="flex flex-col gap-1 text-sm">
               Location
               <input
-                className="w-40 rounded-lg border border-slate-300 bg-white px-3 py-2"
+                className="input w-40"
                 value={newSite.location}
                 onChange={(e) => setNewSite({ ...newSite, location: e.target.value })}
                 placeholder="City"
@@ -264,7 +264,7 @@ export default function SitesPanel({
             </span>
           ) : null}
           <input
-            className="ml-auto w-56 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-signal"
+            className="input ml-auto w-56"
             placeholder="Search gates…"
             value={gateSearch}
             onChange={(e) => setGateSearch(e.target.value)}
@@ -272,7 +272,7 @@ export default function SitesPanel({
           {canWrite ? (
             <button
               onClick={() => setShowArchivedGates((v) => !v)}
-              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium hover:border-slate-400"
+              className="btn btn-secondary"
             >
               {showArchivedGates ? 'Hide archived' : 'Show archived'}
             </button>
@@ -321,7 +321,7 @@ export default function SitesPanel({
                     <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       {canWrite ? (
                         <select
-                          className="w-full max-w-40 rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs"
+                          className="input w-full max-w-40 !px-1 !py-0.5 !text-xs"
                           value={gate.duty_officer ?? ''}
                           onChange={(e) => void assignDuty(gate, e.target.value || null)}
                         >
@@ -347,7 +347,7 @@ export default function SitesPanel({
                             e.stopPropagation()
                             void flipGate(gate)
                           }}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium hover:border-slate-400"
+                          className="btn-chip"
                         >
                           {gate.archived_at ? <ArchiveRestore className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
                           {gate.archived_at ? 'Restore' : 'Archive'}
@@ -365,7 +365,7 @@ export default function SitesPanel({
             <label className="flex flex-col gap-1 text-sm">
               Site
               <select
-                className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2"
+                className="input w-56"
                 value={gateFormSite ?? activeSiteId ?? ''}
                 onChange={(e) => setGateFormSite(e.target.value || null)}
               >
@@ -379,7 +379,7 @@ export default function SitesPanel({
             <label className="flex flex-col gap-1 text-sm">
               New gate
               <input
-                className="w-40 rounded-lg border border-slate-300 bg-white px-3 py-2"
+                className="input w-40"
                 value={newGate.name}
                 onChange={(e) => setNewGate({ ...newGate, name: e.target.value })}
                 placeholder="e.g. North A"
@@ -388,7 +388,7 @@ export default function SitesPanel({
             <label className="flex flex-col gap-1 text-sm">
               Direction
               <select
-                className="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2"
+                className="input w-28"
                 value={newGate.direction}
                 onChange={(e) => setNewGate({ ...newGate, direction: e.target.value })}
               >

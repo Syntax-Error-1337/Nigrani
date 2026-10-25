@@ -84,7 +84,19 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+[role="alert"]:not(.skip-link), .banner-ok {
+  animation: banner-in 0.18s ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
   .live-dot { animation: none; }
 }
 
@@ -172,6 +184,41 @@ body {
   .pill-ok { border: 1px solid #a7f3d0; background: #ecfdf5; color: var(--color-ok); }
   .pill-archived { border: 1px solid #fecaca; background: #fef2f2; color: var(--color-deny); }
   .pill-neutral { border: 1px solid #e2e8f0; background: #f8fafc; color: #64748b; }
+  .pill-open { border: 1px solid #fde68a; background: #fffbeb; color: #92400e; }
+  .pill-active { border: 1px solid #bfdbfe; background: #eff6ff; color: var(--color-signal); }
+  .pill-warn { border: 1px solid #fed7aa; background: #fff7ed; color: #9a3412; }
+  /* Tiny action button inside dense cards (incident rows, link editors). */
+  .btn-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    background: #fff;
+    padding: 0.15rem 0.5rem;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--color-ink);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease,
+      box-shadow 0.15s ease, transform 0.1s ease;
+  }
+  .btn-chip:hover { border-color: #94a3b8; background: #f8fafc; }
+  .btn-chip:active { transform: translateY(1px); }
+  .btn-chip-solid {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.375rem;
+    background: var(--color-signal);
+    padding: 0.15rem 0.5rem;
+    font-size: 11px;
+    font-weight: 500;
+    color: #fff;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+  }
+  .btn-chip-solid:hover { background: var(--color-signal-deep); }
+  .btn-chip-solid:active { transform: translateY(1px); }
 }
 
 @layer components {

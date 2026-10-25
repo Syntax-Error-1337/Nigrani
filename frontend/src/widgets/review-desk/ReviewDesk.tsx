@@ -172,7 +172,7 @@ export default function ReviewDesk() {
               {app.photo_url ? (
                 <button
                   onClick={() => openPhoto(app)}
-                  className="border-slate-300 bg-white px-1 text-xs font-medium"
+                  className="btn-chip"
                 >
                   Photo
                 </button>
@@ -277,7 +277,7 @@ export default function ReviewDesk() {
         <div className="mt-4 border border-signal bg-white p-2">
           <p className="text-base font-semibold tracking-tight">Photo — {photo.name}</p>
           <img src={photo.url} alt={`Applicant photo for ${photo.name}`} className="mt-1 max-h-64 w-auto" />
-          <button onClick={() => setPhoto(null)} className="mt-1 border border-slate-300 bg-white px-2 py-1 text-xs font-medium hover:border-slate-400">
+          <button onClick={() => setPhoto(null)} className="mt-1 btn-chip mt-0.5">
             Close
           </button>
         </div>
