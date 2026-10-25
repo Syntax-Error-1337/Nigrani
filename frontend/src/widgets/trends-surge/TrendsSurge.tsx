@@ -113,7 +113,7 @@ export default function TrendsSurge({
                   )
                 })}
               </div>
-              <div className="mt-1 flex justify-between font-ledger text-[10px] text-slate-400">
+              <div className="mt-1 flex justify-between font-ledger text-[10px] text-slate-500">
                 <span>{fmtHour(buckets[0].hour)}</span>
                 <span>{fmtHour(buckets[buckets.length - 1].hour)}</span>
               </div>

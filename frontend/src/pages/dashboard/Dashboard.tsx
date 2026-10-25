@@ -136,7 +136,7 @@ export default function Dashboard() {
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-saffron/90 font-semibold text-navy">नि</span>
           <div>
             <p className="text-sm font-semibold tracking-tight">Nigrani</p>
-            <p className="text-[10px] text-white/50">निगरानी · operations console</p>
+            <p className="text-[10px] text-white/70">निगरानी · operations console</p>
           </div>
         </div>
         <nav aria-label="Console sections" className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
@@ -186,9 +186,10 @@ export default function Dashboard() {
                 {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </button>
               <div className="flex items-center gap-1 font-ledger text-xs" role="group" aria-label="Text size">
-                <button onClick={() => setTextSize('sm')} className="rounded px-1.5 py-0.5 hover:bg-white/10" aria-label="Smaller text">A−</button>
-                <button onClick={() => setTextSize('md')} className="rounded px-1.5 py-0.5 hover:bg-white/10" aria-label="Normal text">A</button>
-                <button onClick={() => setTextSize('lg')} className="rounded px-1.5 py-0.5 hover:bg-white/10" aria-label="Larger text">A+</button>
+                {/* Visible text leads the accessible name (axe: label-content-name-mismatch). */}
+                <button onClick={() => setTextSize('sm')} className="rounded px-1.5 py-0.5 hover:bg-white/10">A−<span className="sr-only"> smaller text</span></button>
+                <button onClick={() => setTextSize('md')} className="rounded px-1.5 py-0.5 hover:bg-white/10">A<span className="sr-only"> normal text</span></button>
+                <button onClick={() => setTextSize('lg')} className="rounded px-1.5 py-0.5 hover:bg-white/10">A+<span className="sr-only"> larger text</span></button>
               </div>
               <button
                 onClick={logout}

@@ -23,6 +23,11 @@
   --color-saffron: #ff9933;
   --color-saffron-ink: #8a5200;
   --color-saffron-mist: #fff1de;
+
+  /* Tailwind v4 defaults miss AA on paper (#f5f6f8): slate-500 4.4:1,
+     slate-400 2.6:1. Two steps darker keeps the hierarchy, passes 4.5:1. */
+  --color-slate-400: #7a8aa3;
+  --color-slate-500: #5a6b84;
 }
 
 body {
@@ -97,6 +102,12 @@ body {
 .dark .btn-chip {
   background: var(--color-white);
   color: var(--color-ink);
+}
+/* White text needs 4.5:1 — the bright palette signal only reaches ~2.7. */
+.dark .btn-primary,
+.dark .btn-chip-solid {
+  background: #1565d8;
+  color: #fff;
 }
 .dark .skeleton {
   background: linear-gradient(90deg, #212d3d 25%, #2b3850 45%, #212d3d 65%);

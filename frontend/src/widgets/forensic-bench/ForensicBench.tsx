@@ -298,9 +298,9 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
       ) : null}
       <div className="mt-3 grid gap-4 md:grid-cols-2">
         <div className="card card-hover p-4">
-          <h3 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
+          <h2 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
             <ScanFace className="h-4 w-4 text-slate-400" /> Face search
-          </h3>
+          </h2>
           <label className="mt-2 flex flex-col gap-1 text-sm">
             Suspect embedding (512 floats)
             <textarea
@@ -328,9 +328,9 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
           </ol>
         </div>
         <div className="card card-hover p-4">
-          <h3 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
+          <h2 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
             <Siren className="h-4 w-4 text-slate-400" /> Incidents
-          </h3>
+          </h2>
           <form onSubmit={fileIncident} className="mt-2 flex flex-col gap-2">
             <input className="input" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
             <input className="input" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -406,6 +406,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                 )}
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   <select
+                    aria-label={`Assign ${i.title} to`}
                     className="input !w-auto !px-2 !py-0.5 font-ledger !text-xs"
                     value={assignee[i.id] ?? ''}
                     onChange={(e) => setAssignee((p) => ({ ...p, [i.id]: e.target.value }))}
@@ -435,6 +436,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
                 ) : null}
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   <select
+                    aria-label={`Link type for ${i.title}`}
                     className="input !w-auto !px-2 !py-0.5 font-ledger !text-xs"
                     value={linkKind[i.id] ?? 'note'}
                     onChange={(e) => setLinkKind((p) => ({ ...p, [i.id]: e.target.value }))}
@@ -465,9 +467,9 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
       </div>
       <div className="card card-hover mt-4 p-4">
         <div className="flex items-center gap-3">
-          <h3 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
+          <h2 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
             <Flame className="h-4 w-4 text-slate-400" /> Gate heat (24h)
-          </h3>
+          </h2>
           <button onClick={loadHeat} className="btn btn-secondary">Load heatmap</button>
         </div>
         {(heat ?? []).length > 0 ? (

@@ -66,7 +66,11 @@ Seeded logins (password `password`): `superadmin`, `commander`,
 `gate`, `verifier`, `analyst`.
 
 Public press accreditation (no login): `http://localhost:5173/press`.
-Gate kiosk: sign in as `gate`, pick a site and gate post.
+Gate kiosk: sign in as `gate`, pick a gate post (topbar switches sites;
+the kiosk section has its own post picker).
+
+Console theme: light/dark toggle in the topbar (persisted, defaults to
+the OS preference). Text size A−/A/A+ per GIGW.
 
 Roles: SuperAdmin, SiteCommander, GateOperator, VerificationOfficer,
 ForensicAnalyst. Permissions checked per request; SuperAdmin bypasses.
