@@ -223,7 +223,7 @@ export default function Dashboard() {
               canWrite={canWrite}
             />
           ) : null}
-          {current.key === 'kiosk' ? <Kiosk siteId={activeSiteId} gateId={gateId} /> : null}
+          {current.key === 'kiosk' ? <Kiosk siteId={activeSiteId} gateId={gateId} onPickGate={setGateId} /> : null}
           {current.key === 'review' ? <ReviewDesk /> : null}
           {current.key === 'duty' ? <DutyPanel /> : null}
           {current.key === 'bench' ? <ForensicBench siteId={activeSiteId} /> : null}

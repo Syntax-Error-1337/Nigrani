@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowDownLeft, ArrowUpRight, Camera, CheckCircle2, ClipboardPaste, CornerDownLeft, History, ImageOff, RefreshCw, ScanLine, ScanSearch, Upload, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { useGateLog } from '@/entities/gate-log'
+import { useGates } from '@/entities/site'
 import type { PressCard } from '@/entities/kyc'
 import { enqueueCrossing, flushOutbox, retryDelayMs, useOutbox } from '@/shared/lib/outbox'
 
@@ -137,9 +138,12 @@ type KioskLang = keyof typeof KIOSK_STRINGS
 export default function Kiosk({
   siteId,
   gateId,
+  onPickGate,
 }: {
   siteId: string | null
   gateId: string | null
+  // DutyPanel fixes the post; the kiosk section exposes the picker.
+  onPickGate?: (id: string) => void
 }) {
   const [payload, setPayload] = useState('')
   const [card, setCard] = useState<PressCard | null>(null)
@@ -156,6 +160,7 @@ export default function Kiosk({
   )
   const t = KIOSK_STRINGS[lang]
   const log = useGateLog(siteId, gateId)
+  const gates = useGates(siteId, '')
   const pending = useOutbox()
   const [flushing, setFlushing] = useState(false)
   const crl = useRef<CachedCrl | null>(null)
@@ -437,7 +442,25 @@ export default function Kiosk({
 
   return (
     <section className="mt-8">
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        {onPickGate ? (
+          <label className="flex items-center gap-1.5 text-sm">
+            <span className="text-xs text-slate-500">Gate post</span>
+            <select
+              aria-label="Gate post"
+              className="input !w-auto !py-1 !text-xs"
+              value={gateId ?? ''}
+              onChange={(e) => onPickGate(e.target.value)}
+            >
+              <option value="" disabled>pick a post…</option>
+              {(gates.data ?? []).filter((g) => !g.archived_at).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name} ({g.direction})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         {gateId === null ? (
           <span className="pill pill-warn">no gate post selected</span>
         ) : null}
@@ -505,7 +528,7 @@ export default function Kiosk({
       {gateId === null ? (
         <p className="mt-8 text-center text-sm text-slate-400">
           <ScanLine className="mx-auto h-5 w-5" />
-          <span className="mt-1 block">Pick a gate post in <strong className="text-slate-600">Sites &amp; gates</strong> to start screening.</span>
+          <span className="mt-1 block">Pick a gate post above to start screening.</span>
         </p>
       ) : (
       <div className="mt-3 grid gap-4 md:grid-cols-2">
