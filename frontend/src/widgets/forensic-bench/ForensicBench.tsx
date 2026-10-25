@@ -334,7 +334,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
           <form onSubmit={fileIncident} className="mt-2 flex flex-col gap-2">
             <input className="input" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
             <input className="input" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
-            <button type="submit" className="btn btn-primary">File incident</button>
+            <button type="submit" className="btn btn-primary self-start">File incident</button>
           </form>
           <button onClick={loadIncidents} className="btn btn-secondary mt-2">Refresh incidents</button>
           <div className="mt-2 flex flex-wrap gap-1">

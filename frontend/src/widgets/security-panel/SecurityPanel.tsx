@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
-import {  } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
+import { useSession } from '@/shared/session'
 import { apiFetch } from '@/shared/api'
+
+function apiError(body: unknown, fallback: string): string {
+  if (body !== null && typeof body === 'object' && 'error' in body) {
+    const err: unknown = body.error
+    if (typeof err === 'string' && err.length > 0) return err
+  }
+  return fallback
+}
 
 interface SessionRow {
   session_id: string
@@ -12,6 +21,7 @@ interface SessionRow {
 /// Per-user security console: TOTP 2FA enrollment and per-device session
 /// revocation (s-H2). Shown to every signed-in operator.
 export default function SecurityPanel() {
+  const role = useSession((s) => s.user?.role)
   const [sessions, setSessions] = useState<SessionRow[] | null>(null)
   const [totpUri, setTotpUri] = useState<string | null>(null)
   const [totpSecret, setTotpSecret] = useState<string | null>(null)
@@ -111,6 +121,26 @@ export default function SecurityPanel() {
         <button onClick={beginTotp} className="btn btn-secondary">
           Set up 2FA
         </button>
+        {role === 'SuperAdmin' ? (
+          <button
+            onClick={() => {
+              if (!window.confirm('Reset ALL demo data (sites, gates, crossings, press applications, audit)? This cannot be undone.')) return
+              void (async () => {
+                setNotice(null)
+                setOk(null)
+                const res = await apiFetch('/admin/demo/reset', { method: 'POST' })
+                if (!res.ok) {
+                  setNotice(apiError(await res.json().catch(() => ({})), 'Reset refused'))
+                  return
+                }
+                setOk('Demo data reset — the console topology is empty again')
+              })()
+            }}
+            className="btn btn-danger"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Reset demo data
+          </button>
+        ) : null}
       </div>
       {notice ? <p className="mt-2 text-sm text-deny">{notice}</p> : null}
       {ok ? <p className="mt-2 text-sm text-ok">{ok}</p> : null}
