@@ -179,7 +179,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
       ) : null}
       <div className="mt-4 border-t border-slate-200 pt-3">
         <div className="flex items-baseline gap-3">
-          <h3 className="text-base font-semibold tracking-tight">Snapshot orphans</h3>
+          <h2 className="text-base font-semibold tracking-tight">Snapshot orphans</h2>
           <button onClick={checkOrphans} className="btn btn-secondary">
             Check orphans
           </button>

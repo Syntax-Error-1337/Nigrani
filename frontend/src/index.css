@@ -109,6 +109,14 @@ body {
   background: #1565d8;
   color: #fff;
 }
+.dark .btn-success {
+  background: #157a22;
+  color: #fff;
+}
+.dark .btn-danger {
+  background: #b3362e;
+  color: #fff;
+}
 .dark .skeleton {
   background: linear-gradient(90deg, #212d3d 25%, #2b3850 45%, #212d3d 65%);
   background-size: 200% 100%;

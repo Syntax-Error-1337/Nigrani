@@ -638,10 +638,10 @@ export default function Kiosk({
           </div>
         </div>
         <div className="card p-4">
-          <h3 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
+          <h2 className="flex items-center gap-1.5 text-base font-semibold tracking-tight">
             <History className="h-4 w-4 text-slate-400" />
             {t.recent}
-          </h3>
+          </h2>
           {log.isLoading ? (
             <ol className="mt-2" aria-hidden="true">
               <li><span className="skeleton mb-2 h-5 w-full opacity-70" /></li>
