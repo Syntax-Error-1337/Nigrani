@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { KeyRound, Users } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, Users } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { STORAGE_KEY, useSession } from '@/shared/session'
 
@@ -18,6 +18,41 @@ function apiError(body: unknown, fallback: string): string {
     if (typeof err === 'string' && err.length > 0) return err
   }
   return fallback
+}
+
+function PwField({
+  label, id, value, onChange, autoComplete,
+}: {
+  label: string
+  id: string
+  value: string
+  onChange: (v: string) => void
+  autoComplete: string
+}) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <label htmlFor={id}>{label}</label>
+      <span className="relative">
+        <input
+          id={id}
+          type={show ? 'text' : 'password'}
+          className="input pr-10"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete={autoComplete}
+        />
+        <button
+          type="button"
+          aria-label={show ? 'Hide password text' : 'Show password text'}
+          onClick={() => setShow((v) => !v)}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+        >
+          {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </span>
+    </div>
+  )
 }
 
 export default function OperatorsPanel() {
@@ -115,16 +150,13 @@ export default function OperatorsPanel() {
             onChange={(e) => setForm({ ...form, username: e.target.value })}
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Password (12+ chars)
-          <input
-            type="password"
-            className="input"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            autoComplete="new-password"
-          />
-        </label>
+        <PwField
+          label="Password (12+ chars)"
+          id="op-new-password"
+          value={form.password}
+          onChange={(v) => setForm({ ...form, password: v })}
+          autoComplete="new-password"
+        />
         <label className="flex flex-col gap-1 text-sm">
           Role
           <select
@@ -186,26 +218,20 @@ export function PasswordDialog() {
         <KeyRound className="h-4 w-4 text-slate-400" /> Change password
       </h2>
       <form onSubmit={submit} className="mt-2 flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          Current
-          <input
-            type="password"
-            className="input"
-            value={current}
-            onChange={(e) => setCurrent(e.target.value)}
-            autoComplete="current-password"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          New (12+ chars)
-          <input
-            type="password"
-            className="input"
-            value={next}
-            onChange={(e) => setNext(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
+        <PwField
+          label="Current"
+          id="pw-current"
+          value={current}
+          onChange={setCurrent}
+          autoComplete="current-password"
+        />
+        <PwField
+          label="New (12+ chars)"
+          id="pw-new"
+          value={next}
+          onChange={setNext}
+          autoComplete="new-password"
+        />
         <button type="submit" className="btn btn-primary">
           Change
         </button>

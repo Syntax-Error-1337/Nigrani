@@ -181,8 +181,8 @@ export default function SitesPanel({
           </p>
         ) : null}
         {sites.length > 0 ? (
-          <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <table className="w-full table-fixed text-sm">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+            <table className="w-full min-w-[560px] table-fixed text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/60 text-left text-xs text-slate-500">
                   <th className="w-[40%] px-4 py-2.5 font-medium">Site</th>
@@ -294,8 +294,8 @@ export default function SitesPanel({
         ) : (gatesQuery.data ?? []).length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">No gates posted at this site yet.</p>
         ) : (
-          <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <table className="w-full table-fixed text-sm">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+            <table className="w-full min-w-[560px] table-fixed text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/60 text-left text-xs text-slate-500">
                   <th className="w-[34%] px-4 py-2.5 font-medium">Gate</th>
