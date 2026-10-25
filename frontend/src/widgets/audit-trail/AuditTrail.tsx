@@ -124,7 +124,11 @@ function detailLines(detail: unknown): [string, string][] {
       ) : null}
       <ol className="mt-3 card divide-y divide-slate-100">
         {rows === null ? (
-          <li className="px-4 py-6 text-center text-sm text-slate-400">Loading trail…</li>
+          <li className="p-2" aria-hidden="true">
+            <span className="skeleton mb-2 h-9 w-full opacity-70" />
+            <span className="skeleton mb-2 h-9 w-full opacity-50" />
+            <span className="skeleton h-9 w-full opacity-40" />
+          </li>
         ) : null}
         {(rows ?? []).map((e) => {
           const lines = detailLines(e.detail)

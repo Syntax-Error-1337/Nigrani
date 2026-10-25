@@ -93,7 +93,11 @@ export default function Dashboard() {
           key={label}
           className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
         >
-          <p className="font-ledger text-3xl tabular-nums leading-none">{value ?? '—'}</p>
+          <p className="font-ledger text-3xl tabular-nums leading-none">
+            {value === undefined
+              ? <span className="skeleton h-8 w-14" aria-label="loading" />
+              : value}
+          </p>
           <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
             <Activity className="h-3 w-3 text-saffron opacity-0 transition-opacity group-hover:opacity-100" />
             {label}

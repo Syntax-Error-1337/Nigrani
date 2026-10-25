@@ -157,9 +157,11 @@ export default function ReviewDesk() {
         </p>
       ) : null}
       {queue.isLoading ? (
-        <p className="mt-3 flex items-center gap-2 text-sm text-slate-500">
-          <RefreshCcw className="h-3.5 w-3.5 animate-spin" /> Loading queue…
-        </p>
+        <div className="mt-3 card p-2" aria-hidden="true">
+          <span className="skeleton mb-2 h-12 w-full opacity-70" />
+          <span className="skeleton mb-2 h-12 w-full opacity-50" />
+          <span className="skeleton h-12 w-full opacity-40" />
+        </div>
       ) : null}
       {queue.isError ? <p className="mt-3 text-deny">Queue would not load.</p> : null}
       {!queue.isLoading && rows.length === 0 ? (

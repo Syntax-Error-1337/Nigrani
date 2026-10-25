@@ -618,7 +618,13 @@ export default function Kiosk({
             <History className="h-4 w-4 text-slate-400" />
             {t.recent}
           </h3>
-          {log.isLoading ? <p className="mt-2 text-sm">{t.loading}</p> : null}
+          {log.isLoading ? (
+            <ol className="mt-2" aria-hidden="true">
+              <li><span className="skeleton mb-2 h-5 w-full opacity-70" /></li>
+              <li><span className="skeleton mb-2 h-5 w-4/5 opacity-50" /></li>
+              <li><span className="skeleton h-5 w-3/5 opacity-40" /></li>
+            </ol>
+          ) : null}
           {(log.data ?? []).length === 0 && !log.isLoading ? (
             <p className="mt-6 text-center text-sm text-slate-400">
               <ImageOff className="mx-auto h-5 w-5" />

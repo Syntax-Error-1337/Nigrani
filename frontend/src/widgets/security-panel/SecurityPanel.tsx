@@ -160,6 +160,13 @@ export default function SecurityPanel() {
           </button>
         </div>
       ) : null}
+      {sessions === null ? (
+        <ol className="mt-3 rounded-xl border border-slate-200 bg-white p-2 shadow-sm" aria-hidden="true">
+          <li><span className="skeleton mb-2 h-7 w-full opacity-70" /></li>
+          <li><span className="skeleton mb-2 h-7 w-full opacity-50" /></li>
+          <li><span className="skeleton h-7 w-2/3 opacity-40" /></li>
+        </ol>
+      ) : null}
       {sessions ? (
         <ol className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-sm">
           {sessions.map((s) => (

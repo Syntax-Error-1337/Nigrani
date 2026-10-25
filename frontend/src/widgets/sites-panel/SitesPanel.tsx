@@ -168,7 +168,13 @@ export default function SitesPanel({
             </button>
           ) : null}
         </div>
-        {sitesLoading ? <p className="mt-2 text-sm text-slate-500">Loading sites…</p> : null}
+        {sitesLoading ? (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2 shadow-sm" aria-hidden="true">
+            <span className="skeleton mb-2 h-10 w-full opacity-70" />
+            <span className="skeleton mb-2 h-10 w-full opacity-50" />
+            <span className="skeleton h-10 w-full opacity-40" />
+          </div>
+        ) : null}
         {sitesError ? (
           <p role="alert" className="mt-2 text-sm text-deny">
             Sites would not load. Check the API connection.
@@ -288,7 +294,11 @@ export default function SitesPanel({
         {activeSiteId === null ? (
           <p className="mt-2 text-sm text-slate-500">Select a site above to see its gates.</p>
         ) : gatesQuery.isLoading ? (
-          <p className="mt-2 text-sm text-slate-500">Loading gates…</p>
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2 shadow-sm" aria-hidden="true">
+            <span className="skeleton mb-2 h-10 w-full opacity-70" />
+            <span className="skeleton mb-2 h-10 w-full opacity-50" />
+            <span className="skeleton h-10 w-full opacity-40" />
+          </div>
         ) : gatesQuery.isError ? (
           <p className="mt-2 text-sm text-deny">Gates would not load.</p>
         ) : (gatesQuery.data ?? []).length === 0 ? (
