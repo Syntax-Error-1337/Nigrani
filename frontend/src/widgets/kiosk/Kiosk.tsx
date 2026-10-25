@@ -75,7 +75,7 @@ const KIOSK_STRINGS = {
     logManual: 'Log manual entry',
     recent: 'Recent crossings',
     loading: 'Loading log…',
-    empty: '{t.empty}',
+    empty: 'No crossings recorded at this gate yet.',
     queued: 'Queued crossings',
     try: 'try',
     denyRevoked: 'Card revoked — redirect holder to the press desk',
@@ -652,7 +652,7 @@ export default function Kiosk({
           {(log.data ?? []).length === 0 && !log.isLoading ? (
             <p className="mt-6 text-center text-sm text-slate-500">
               <ImageOff className="mx-auto h-5 w-5" />
-              <span className="mt-1 block">No crossings recorded at this gate yet.</span>
+              <span className="mt-1 block">{t.empty}</span>
             </p>
           ) : null}
           <ol className="mt-2 divide-y divide-slate-100">
