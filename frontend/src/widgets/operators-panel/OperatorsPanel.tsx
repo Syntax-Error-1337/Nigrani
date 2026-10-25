@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Eye, EyeOff, KeyRound, Users } from 'lucide-react'
-import { apiFetch } from '@/shared/api'
+import { safeApi } from '@/shared/api'
 import { STORAGE_KEY, useSession } from '@/shared/session'
 
 interface Operator {
@@ -63,7 +63,7 @@ export default function OperatorsPanel() {
   async function load() {
   try {
       setNotice(null)
-      const res = await apiFetch('/users')
+      const res = await safeApi('/users')
       if (!res.ok) {
         setNotice(apiError(await res.json().catch(() => ({})), 'Operators would not load'))
         return
@@ -77,7 +77,7 @@ export default function OperatorsPanel() {
   async function create(e: React.FormEvent) {
     e.preventDefault()
     setNotice(null)
-    const res = await apiFetch('/users', { method: 'POST', body: JSON.stringify(form) })
+    const res = await safeApi('/users', { method: 'POST', body: JSON.stringify(form) })
     if (!res.ok) {
       setNotice(apiError(await res.json().catch(() => ({})), 'Could not create operator'))
       return
@@ -89,7 +89,7 @@ export default function OperatorsPanel() {
   async function flip(op: Operator) {
     setNotice(null)
     const action = op.active ? 'deactivate' : 'reactivate'
-    const res = await apiFetch(`/users/${op.id}/${action}`, { method: 'POST' })
+    const res = await safeApi(`/users/${op.id}/${action}`, { method: 'POST' })
     if (!res.ok) {
       setNotice(apiError(await res.json().catch(() => ({})), `Could not ${action}`))
       return
@@ -99,7 +99,7 @@ export default function OperatorsPanel() {
 
   async function unlock(op: Operator) {
     setNotice(null)
-    const res = await apiFetch(`/users/${op.id}/unlock`, { method: 'POST' })
+    const res = await safeApi(`/users/${op.id}/unlock`, { method: 'POST' })
     if (!res.ok) {
       setNotice(apiError(await res.json().catch(() => ({})), 'Could not unlock'))
       return
@@ -191,7 +191,7 @@ export function PasswordDialog() {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setMsg(null)
-    const res = await apiFetch('/auth/password', {
+    const res = await safeApi('/auth/password', {
       method: 'POST',
       body: JSON.stringify({ current, new: next }),
     })
@@ -205,7 +205,7 @@ export function PasswordDialog() {
   }
 
   async function signOutAll() {
-    const res = await apiFetch('/auth/logout/all', { method: 'POST' })
+    const res = await safeApi('/auth/logout/all', { method: 'POST' })
     if (!res.ok) {
       setMsg(`Sign-out refused (${res.status})`)
       return

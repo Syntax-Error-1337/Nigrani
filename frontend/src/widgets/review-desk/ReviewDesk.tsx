@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Ban, Check, Download, IdCard, Inbox, RefreshCcw, X, XCircle } from 'lucide-react'
 import { useDebounced } from '@/shared/lib'
 import { useKycQueue, type KycApplication, type PressCard } from '@/entities/kyc'
-import { apiFetch } from '@/shared/api'
+import { safeApi } from '@/shared/api'
 
 function queueError(body: unknown, fallback: string): string {
   if (body !== null && typeof body === 'object' && 'error' in body) {
@@ -33,7 +33,7 @@ export default function ReviewDesk() {
       setNotice('Add a reason first — rejections need recourse')
       return
     }
-    const res = await apiFetch(`/kyc/applications/${app.id}/decide`, {
+    const res = await safeApi(`/kyc/applications/${app.id}/decide`, {
       method: 'POST',
       body: JSON.stringify({ decision, note: note[app.id] ?? '' }),
     })
@@ -46,7 +46,7 @@ export default function ReviewDesk() {
 
   async function revoke(app: KycApplication) {
     setNotice(null)
-    const res = await apiFetch(`/kyc/applications/${app.id}/revoke-card`, { method: 'POST' })
+    const res = await safeApi(`/kyc/applications/${app.id}/revoke-card`, { method: 'POST' })
     if (!res.ok) {
       setNotice(queueError(await res.json().catch(() => ({})), `Could not revoke ${app.full_name}`))
       return
@@ -56,7 +56,7 @@ export default function ReviewDesk() {
 
   async function reissue(app: KycApplication) {
     setNotice(null)
-    const res = await apiFetch(`/kyc/applications/${app.id}/reissue`, { method: 'POST' })
+    const res = await safeApi(`/kyc/applications/${app.id}/reissue`, { method: 'POST' })
     if (!res.ok) {
       setNotice(queueError(await res.json().catch(() => ({})), `Could not reissue ${app.full_name}`))
       return
@@ -66,7 +66,7 @@ export default function ReviewDesk() {
 
   async function downloadCrl() {
     setNotice(null)
-    const res = await apiFetch('/kyc/crl')
+    const res = await safeApi('/kyc/crl')
     if (!res.ok) {
       setNotice(`CRL export refused (${res.status})`)
       return
@@ -89,7 +89,7 @@ export default function ReviewDesk() {
     }
     // Otherwise treat as a snapshot key (UUID.jpg): presigned fetch.
     const key = ref.startsWith('s3://') ? ref.slice(5) : ref
-    const res = await apiFetch(`/snapshots/${key}/share`)
+    const res = await safeApi(`/snapshots/${key}/share`)
     if (!res.ok) {
       setNotice('Photo unavailable')
       return
@@ -103,7 +103,7 @@ export default function ReviewDesk() {
   async function issueCard(app: KycApplication) {
     setNotice(null)
     setCard(null)
-    const res = await apiFetch(`/kyc/applications/${app.id}/press-card`)
+    const res = await safeApi(`/kyc/applications/${app.id}/press-card`)
     if (!res.ok) {
       setNotice(queueError(await res.json().catch(() => ({})), 'Could not issue press card'))
       return
@@ -112,7 +112,7 @@ export default function ReviewDesk() {
     // Issuing mints the serial/expiry server-side; refresh the queue row.
     queue.refetch()
     const parsed = JSON.parse(payload) as Partial<PressCard>
-    const img = await apiFetch(`/kyc/applications/${app.id}/press-card.png`)
+    const img = await safeApi(`/kyc/applications/${app.id}/press-card.png`)
     if (!img.ok) {
       setNotice('Card payload ready, but QR image failed — use the JSON fallback')
       setCard({ name: app.full_name, payload, qrUrl: '', serial: parsed.serial ?? null, expires: parsed.expires_at ?? null })

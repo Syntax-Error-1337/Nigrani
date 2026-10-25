@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {  } from 'lucide-react'
-import { apiFetch } from '@/shared/api'
+import { safeApi } from '@/shared/api'
 
 interface Policy {
   entity: string
@@ -20,7 +20,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
       setNotice('Select a site scope first')
       return
     }
-    const res = await apiFetch(`/sites/${siteId}/export`)
+    const res = await safeApi(`/sites/${siteId}/export`)
     if (!res.ok) {
       setNotice(`Export refused (${res.status})`)
       return
@@ -40,7 +40,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
       setNotice('Select a site scope first')
       return
     }
-    const res = await apiFetch(`/sites/${siteId}/report.csv`)
+    const res = await safeApi(`/sites/${siteId}/report.csv`)
     if (!res.ok) {
       setNotice(`CSV refused (${res.status})`)
       return
@@ -56,7 +56,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
   async function load() {
   try {
       setNotice(null)
-      const res = await apiFetch('/admin/retention/policies')
+      const res = await safeApi('/admin/retention/policies')
       if (!res.ok) {
         setNotice(`Policies refused (${res.status})`)
         return
@@ -69,7 +69,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
 
   async function save(entity: string, retain_days: number) {
     setNotice(null)
-    const res = await apiFetch(`/admin/retention/policies/${entity}`, {
+    const res = await safeApi(`/admin/retention/policies/${entity}`, {
       method: 'POST',
       body: JSON.stringify({ retain_days }),
     })
@@ -83,7 +83,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
   async function purge() {
     setNotice(null)
     setReport(null)
-    const res = await apiFetch('/admin/retention/run', { method: 'POST' })
+    const res = await safeApi('/admin/retention/run', { method: 'POST' })
     if (!res.ok) {
       setNotice(`Purge refused (${res.status})`)
       return
@@ -108,7 +108,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
   async function preview() {
     setNotice(null)
     setReport(null)
-    const res = await apiFetch('/admin/retention/preview', { method: 'POST' })
+    const res = await safeApi('/admin/retention/preview', { method: 'POST' })
     if (!res.ok) {
       setNotice(`Preview refused (${res.status})`)
       return
@@ -135,7 +135,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
 
   async function checkOrphans() {
     setCollected(null)
-    const res = await apiFetch('/admin/snapshots/collect', {
+    const res = await safeApi('/admin/snapshots/collect', {
       method: 'POST',
       body: JSON.stringify({ dry_run: true }),
     })
@@ -154,7 +154,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
   async function collectOrphans() {
     setNotice(null)
     setCollected(null)
-    const res = await apiFetch('/admin/snapshots/collect', {
+    const res = await safeApi('/admin/snapshots/collect', {
       method: 'POST',
       body: JSON.stringify({ dry_run: false }),
     })

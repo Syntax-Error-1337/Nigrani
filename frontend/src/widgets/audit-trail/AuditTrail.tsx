@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Anchor, Link2, ShieldCheck, XCircle } from 'lucide-react'
-import { apiFetch } from '@/shared/api'
+import { safeApi } from '@/shared/api'
 
 interface AuditEntry {
   seq: number
@@ -36,7 +36,7 @@ function detailLines(detail: unknown): [string, string][] {
   try {
       setNotice(null)
       const path = siteId ? `/sites/${siteId}/audit?limit=30` : '/audit?limit=30'
-      const res = await apiFetch(path)
+      const res = await safeApi(path)
       if (!res.ok) {
         setNotice(`Trail would not load (${res.status})`)
         return
@@ -49,7 +49,7 @@ function detailLines(detail: unknown): [string, string][] {
 
   async function verify() {
     setNotice(null)
-    const res = await apiFetch('/audit/verify')
+    const res = await safeApi('/audit/verify')
     if (!res.ok) {
       setNotice(`Verify refused (${res.status})`)
       return
@@ -77,7 +77,7 @@ function detailLines(detail: unknown): [string, string][] {
 
   async function anchor() {
     setNotice(null)
-    const res = await apiFetch('/audit/anchor', { method: 'POST' })
+    const res = await safeApi('/audit/anchor', { method: 'POST' })
     if (!res.ok) {
       setNotice(`Anchor refused (${res.status})`)
       return

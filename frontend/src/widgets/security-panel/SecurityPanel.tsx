@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { useSession } from '@/shared/session'
-import { apiFetch } from '@/shared/api'
+import { safeApi } from '@/shared/api'
 
 function apiError(body: unknown, fallback: string): string {
   if (body !== null && typeof body === 'object' && 'error' in body) {
@@ -33,7 +33,7 @@ export default function SecurityPanel() {
   async function loadSessions() {
   try {
       setNotice(null)
-      const res = await apiFetch('/auth/sessions')
+      const res = await safeApi('/auth/sessions')
       if (!res.ok) {
         setNotice(`Sessions refused (${res.status})`)
         return
@@ -56,7 +56,7 @@ export default function SecurityPanel() {
   async function beginTotp() {
     setNotice(null)
     setOk(null)
-    const res = await apiFetch('/auth/totp/setup', { method: 'POST' })
+    const res = await safeApi('/auth/totp/setup', { method: 'POST' })
     const body: unknown = await res.json().catch(() => ({}))
     if (!res.ok) {
       const err = body !== null && typeof body === 'object' && 'error' in body ? body.error : null
@@ -72,7 +72,7 @@ export default function SecurityPanel() {
 
   async function confirmTotp() {
     setNotice(null)
-    const res = await apiFetch('/auth/totp/enable', {
+    const res = await safeApi('/auth/totp/enable', {
       method: 'POST',
       body: JSON.stringify({ code }),
     })
@@ -91,7 +91,7 @@ export default function SecurityPanel() {
 
   async function disableTotp() {
     setNotice(null)
-    const res = await apiFetch('/auth/totp/disable', {
+    const res = await safeApi('/auth/totp/disable', {
       method: 'POST',
       body: JSON.stringify({ code }),
     })
@@ -106,7 +106,7 @@ export default function SecurityPanel() {
 
   async function revoke(sid: string) {
     setNotice(null)
-    const res = await apiFetch(`/auth/sessions/${sid}/revoke`, { method: 'POST' })
+    const res = await safeApi(`/auth/sessions/${sid}/revoke`, { method: 'POST' })
     if (!res.ok) {
       setNotice(`Revoke refused (${res.status})`)
       return
@@ -132,7 +132,7 @@ export default function SecurityPanel() {
               void (async () => {
                 setNotice(null)
                 setOk(null)
-                const res = await apiFetch('/admin/demo/reset', { method: 'POST' })
+                const res = await safeApi('/admin/demo/reset', { method: 'POST' })
                 if (!res.ok) {
                   setNotice(apiError(await res.json().catch(() => ({})), 'Reset refused'))
                   return

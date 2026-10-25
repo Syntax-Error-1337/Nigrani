@@ -87,3 +87,21 @@ function errorMessage(body: unknown, fallback: string): string {
   }
   return fallback
 }
+
+/// apiFetch that never throws on network failure: unreachable API surfaces
+/// as a 503 response so every panel's `!res.ok` branch handles it with the
+/// same code path as a server error. (Kiosk stays on raw apiFetch — its
+/// offline path needs the throw to route through the cached-CRL logic.)
+export async function safeApi(path: string, init: RequestInit = {}): Promise<Response> {
+  try {
+    return await apiFetch(path, init)
+  } catch (e) {
+    if (e instanceof TypeError) {
+      return new Response(JSON.stringify({ error: 'Network error — is the API running?' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    throw e
+  }
+}
