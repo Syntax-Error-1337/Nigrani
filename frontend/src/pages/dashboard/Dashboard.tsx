@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Activity, BadgeCheck, ClipboardList, Gauge, KeyRound, LayoutDashboard,
+  Activity, BadgeCheck, ClipboardList, Gauge, KeyRound, LayoutDashboard, Moon, Sun,
   LogOut, Radar, Recycle, ScanLine, ShieldCheck, Network, Users,
 } from 'lucide-react'
 import AuditTrail from '@/widgets/audit-trail'
@@ -43,6 +43,16 @@ export default function Dashboard() {
     const scale = size === 'sm' ? '87.5%' : size === 'lg' ? '112.5%' : '100%'
     document.documentElement.style.fontSize = scale
   }
+
+  const [dark, setDark] = useState(() =>
+    localStorage.getItem('sg-theme')
+      ? localStorage.getItem('sg-theme') === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches,
+  )
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    localStorage.setItem('sg-theme', dark ? 'dark' : 'light')
+  }, [dark])
 
   // Full topology (unfiltered): fallback selection + the topbar site picker.
   const sitesQuery = useSites('', false)
@@ -168,6 +178,13 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center gap-3">
               {sites.length > 0 ? SitePicker : null}
+              <button
+                onClick={() => setDark((v) => !v)}
+                aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+                className="rounded-lg p-1.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
               <div className="flex items-center gap-1 font-ledger text-xs" role="group" aria-label="Text size">
                 <button onClick={() => setTextSize('sm')} className="rounded px-1.5 py-0.5 hover:bg-white/10" aria-label="Smaller text">A−</button>
                 <button onClick={() => setTextSize('md')} className="rounded px-1.5 py-0.5 hover:bg-white/10" aria-label="Normal text">A</button>

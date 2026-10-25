@@ -32,6 +32,83 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * Dark mode: Tailwind v4 utilities resolve palette colors through
+ * var(--color-*), so remapping the variables under `.dark` re-themes
+ * every component without touching component classes. Navy surfaces
+ * restore --color-white locally — their white text/borders must stay
+ * white (s-aside, topbar, mobile chips).
+ */
+.dark {
+  --color-paper: #10161f;
+  --color-ink: #dbe4ee;
+  --color-white: #1a2330;
+
+  --color-slate-50: #1a2330;
+  --color-slate-100: #212d3d;
+  --color-slate-200: #33415a;
+  --color-slate-300: #46536e;
+  --color-slate-400: #92a1b8;
+  --color-slate-500: #a8b4c8;
+  --color-slate-600: #c3cddb;
+  --color-slate-700: #d7deeb;
+  --color-slate-800: #e7ecf3;
+  --color-slate-900: #f3f6fa;
+  --color-neutral-200: #33415a;
+
+  --color-signal: #4d9fff;
+  --color-signal-deep: #2f7fe6;
+  --color-ok: #37b83f;
+  --color-deny: #ef6b64;
+  --color-saffron: #ffab52;
+  --color-saffron-ink: #ffc37a;
+  --color-saffron-mist: #3a2c18;
+
+  --color-emerald-50: #12291a;
+  --color-emerald-200: #1d5c33;
+  --color-rose-50: #2b1514;
+  --color-rose-200: #6b2320;
+  --color-amber-50: #2b2214;
+  --color-amber-200: #6b5420;
+  --color-blue-50: #14243a;
+}
+
+/* Navy surfaces keep the light palette for their white text/borders. */
+.dark aside,
+.dark header,
+.dark .bg-navy {
+  --color-white: #ffffff;
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+}
+
+/* Hex-literal components that bypass the palette vars. */
+.dark .card,
+.dark .input,
+.dark .btn-secondary,
+.dark .btn-chip {
+  background: var(--color-white);
+  color: var(--color-ink);
+}
+.dark .skeleton {
+  background: linear-gradient(90deg, #212d3d 25%, #2b3850 45%, #212d3d 65%);
+  background-size: 200% 100%;
+}
+.dark .pill-ok { border-color: #1d5c33; background: #12291a; color: #37b83f; }
+.dark .pill-archived { border-color: #6b2320; background: #2b1514; color: #ef6b64; }
+.dark .pill-neutral { border-color: #33415a; background: #212d3d; color: #a8b4c8; }
+.dark .pill-open { border-color: #6b5420; background: #2b2214; color: #ffc37a; }
+.dark .pill-active { border-color: #2b4d80; background: #14243a; color: #4d9fff; }
+.dark .pill-warn { border-color: #6b4a20; background: #2b2214; color: #ffab52; }
+
 @layer base {
   button {
     border-radius: 8px;
