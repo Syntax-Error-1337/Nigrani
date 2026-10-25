@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDownLeft, ArrowUpRight, Camera, CheckCircle2, ClipboardPaste, CornerDownLeft, History, ImageOff, RefreshCw, ScanSearch, Upload, XCircle } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Camera, DoorOpen, CheckCircle2, ClipboardPaste, CornerDownLeft, History, ImageOff, RefreshCw, ScanLine, ScanSearch, Upload, XCircle } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 import { useGateLog } from '@/entities/gate-log'
 import type { PressCard } from '@/entities/kyc'
@@ -438,7 +438,12 @@ export default function Kiosk({
   return (
     <section className="mt-8">
       <div className="flex items-center gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight">Gate kiosk</h2>
+        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+          <DoorOpen className="h-4 w-4 text-slate-400" /> Gate kiosk
+        </h2>
+        {gateId === null ? (
+          <span className="pill pill-warn">no gate post selected</span>
+        ) : null}
         {offline ? (
           <span className="pill pill-archived">
             {t.offline} — {crl.current ? t.cachedList : t.noList}
@@ -500,6 +505,12 @@ export default function Kiosk({
           {ok}
         </p>
       ) : null}
+      {gateId === null ? (
+        <p className="mt-8 text-center text-sm text-slate-400">
+          <ScanLine className="mx-auto h-5 w-5" />
+          <span className="mt-1 block">Pick a gate post in <strong className="text-slate-600">Sites &amp; gates</strong> to start screening.</span>
+        </p>
+      ) : (
       <div className="mt-3 grid gap-4 md:grid-cols-2">
         <div className="card p-4">
           <label className="flex flex-col gap-1 text-sm">
@@ -629,6 +640,7 @@ export default function Kiosk({
           ) : null}
         </div>
       </div>
+      )}
     </section>
   )
 }

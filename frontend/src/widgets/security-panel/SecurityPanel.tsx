@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Lock } from 'lucide-react'
 import { apiFetch } from '@/shared/api'
 
 interface SessionRow {
@@ -97,7 +98,9 @@ export default function SecurityPanel() {
   return (
     <section className="mt-8">
       <div className="flex items-baseline gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight">Security</h2>
+        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
+          <Lock className="h-4 w-4 text-slate-400" /> Security
+        </h2>
         <button onClick={loadSessions} className="btn btn-secondary">
           List sessions
         </button>

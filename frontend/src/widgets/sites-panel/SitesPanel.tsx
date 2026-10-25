@@ -185,11 +185,11 @@ export default function SitesPanel({
             <table className="w-full table-fixed text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/60 text-left text-xs text-slate-500">
-                  <th className="w-[45%] px-4 py-2.5 font-medium">Site</th>
-                  <th className="hidden w-[25%] px-4 py-2.5 font-medium sm:table-cell">Location</th>
+                  <th className="w-[40%] px-4 py-2.5 font-medium">Site</th>
+                  <th className="hidden w-[22%] px-4 py-2.5 font-medium sm:table-cell">Location</th>
                   <th className="hidden w-[12%] px-4 py-2.5 font-medium md:table-cell">Created</th>
-                  <th className="w-[10%] px-4 py-2.5 font-medium">Status</th>
-                  <th className="w-[8%] px-4 py-2.5" />
+                  <th className="w-[12%] px-4 py-2.5 font-medium">Status</th>
+                  <th className="w-[14%] px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>
@@ -298,12 +298,12 @@ export default function SitesPanel({
             <table className="w-full table-fixed text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/60 text-left text-xs text-slate-500">
-                  <th className="w-[40%] px-4 py-2.5 font-medium">Gate</th>
-                  <th className="w-[15%] px-4 py-2.5 font-medium">Direction</th>
-                  <th className="w-[15%] px-4 py-2.5 font-medium">Duty officer</th>
-                  <th className="hidden w-[15%] px-4 py-2.5 font-medium sm:table-cell">Created</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5" />
+                  <th className="w-[34%] px-4 py-2.5 font-medium">Gate</th>
+                  <th className="w-[12%] px-4 py-2.5 font-medium">Direction</th>
+                  <th className="w-[16%] px-4 py-2.5 font-medium">Duty officer</th>
+                  <th className="hidden w-[12%] px-4 py-2.5 font-medium sm:table-cell">Created</th>
+                  <th className="w-[12%] px-4 py-2.5 font-medium">Status</th>
+                  <th className="w-[14%] px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>

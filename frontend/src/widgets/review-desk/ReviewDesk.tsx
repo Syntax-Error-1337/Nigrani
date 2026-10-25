@@ -295,7 +295,10 @@ export default function ReviewDesk() {
           ) : null}
           <div>
             <p className="text-base font-semibold tracking-tight">Press card — {card.name}</p>
-            <p className="mt-1 font-ledger text-xs break-all">{card.payload}</p>
+            <details className="mt-1 font-ledger text-xs">
+              <summary className="cursor-pointer text-slate-500 transition-colors hover:text-signal">payload JSON</summary>
+              <p className="mt-1 break-all text-slate-600">{card.payload}</p>
+            </details>
             {card.serial ? (
               <p className="mt-1 text-sm">
                 Serial {card.serial}

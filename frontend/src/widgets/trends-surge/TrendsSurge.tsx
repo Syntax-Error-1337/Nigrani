@@ -49,7 +49,7 @@ export default function TrendsSurge({
   return (
     <section className="mt-8">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
+        <h2 className="flex items-center gap-1.5 text-lg font-semibold tracking-tight">
           <Activity className="h-4 w-4 text-slate-400" /> Crowd flow
         </h2>
         <span className="text-sm text-slate-500">hourly crossings · {siteId === null ? 'no site selected' : `${hours}h window`}</span>
@@ -99,7 +99,7 @@ export default function TrendsSurge({
                   <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-signal-deep" /> in+out per hour</span>
                   <span className="font-ledger">peak {peak}/h</span>
                 </span>
-                <span>{buckets.length} hourly buckets</span>
+                <span>{buckets.length} hourly {buckets.length === 1 ? 'bucket' : 'buckets'}</span>
               </div>
               <div className="mt-3 flex h-40 items-end gap-[3px] border-b border-slate-200 pb-px" aria-label="Hourly crossings chart" role="img">
                 {buckets.map((b) => {
@@ -108,7 +108,7 @@ export default function TrendsSurge({
                   return (
                     <div
                       key={b.hour}
-                      className="group/bar relative flex-1 rounded-t-sm bg-gradient-to-t from-signal-deep/85 to-signal transition-[filter] hover:brightness-125"
+                      className="group/bar relative max-w-7 flex-1 rounded-t-sm bg-gradient-to-t from-signal-deep/85 to-signal transition-[filter] hover:brightness-125"
                       style={{ height: `${pct}%`, minWidth: 3 }}
                       title={`${fmtHour(b.hour)} — ${b.entries} in / ${b.exits} out`}
                     />
