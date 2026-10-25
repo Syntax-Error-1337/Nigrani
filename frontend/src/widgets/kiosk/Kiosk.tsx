@@ -231,8 +231,16 @@ export default function Kiosk({
       }
     })
     const onOnline = () => {
+      setOffline(false)
       void flushOutbox().then((r) => {
-        if (r.sent > 0 || r.dropped > 0) log.refetch()
+        if (r.sent > 0) {
+          setOk(t.flushed(r.sent))
+          setNotice(null) // stale queuedOffline banner
+          log.refetch()
+        } else if (r.dropped > 0) {
+          setNotice(t.dropped(r.dropped))
+          log.refetch()
+        }
       })
     }
     window.addEventListener('online', onOnline)
