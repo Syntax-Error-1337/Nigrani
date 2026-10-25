@@ -169,6 +169,7 @@ export default function Kiosk({
   const [card, setCard] = useState<PressCard | null>(null)
   const [direction, setDirection] = useState<'entry' | 'exit'>('entry')
   const [snapshotKey, setSnapshotKey] = useState('')
+  const [snapshotBytes, setSnapshotBytes] = useState('')
   const [shareUrl, setShareUrl] = useState('')
   const [preview, setPreview] = useState<{ key: string; url: string } | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -367,6 +368,12 @@ export default function Kiosk({
     setNotice(null)
     try {
       const buf = await file.arrayBuffer()
+      // Bytes stage immediately: offline they ride the queued crossing and
+      // upload on flush instead of being lost.
+      const b64 = btoa(
+        new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ''),
+      )
+      setSnapshotBytes(b64)
       const res = await apiFetch('/snapshots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream' },
@@ -423,6 +430,7 @@ export default function Kiosk({
       method,
       press_card: method === 'press_card' ? card : null,
       snapshot_key: snapshotKey || null,
+      snapshot_bytes: snapshotKey ? null : snapshotBytes || null,
     }
     let res: Response
     try {
@@ -465,6 +473,7 @@ export default function Kiosk({
     setCard(null)
     setPayload('')
     setSnapshotKey('')
+    setSnapshotBytes('')
     setShareUrl('')
     log.refetch()
     // Piggyback: a good connection flushes anything waiting.

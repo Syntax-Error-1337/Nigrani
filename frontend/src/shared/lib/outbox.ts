@@ -18,6 +18,9 @@ export interface OutboxItem {
   method: 'press_card' | 'manual'
   press_card: PressCard | null
   snapshot_key: string | null
+  /// Base64 JPEG staged while offline (upload impossible until reconnect).
+  /// Cleared once uploaded on flush; a crossing keeps its photo either way.
+  snapshot_bytes: string | null
   queued_at: string
   attempts: number
 }
@@ -84,6 +87,11 @@ export function enqueueCrossing(item: Omit<OutboxItem, 'id' | 'queued_at' | 'att
     queued_at: new Date().toISOString(),
     attempts: 0,
   }
+  // Quota guard: base64 over ~3 MB would blow the 5 MB store and evict
+  // OTHER crossings — queue the crossing, sacrifice the oversized photo.
+  if (full.snapshot_bytes && full.snapshot_bytes.length > 3_000_000) {
+    full.snapshot_bytes = null
+  }
   items.push(full)
   // Bound the queue (100): a kiosk deeper than that needs ops, not RAM.
   while (items.length > 100) items.shift()
@@ -102,6 +110,36 @@ function bump(id: string) {
 /// Post one item. Returns 'sent' | 'retry' (network/5xx/429) | 'drop'
 /// (4xx verdict — caller surfaces the reason; 410 = gate retired).
 async function postItem(item: OutboxItem): Promise<'sent' | 'retry' | 'drop'> {
+  // A photo staged offline uploads first; the key replaces the bytes so a
+  // retry never re-uploads.
+  if (item.snapshot_key === null && item.snapshot_bytes) {
+    let up: Response
+    try {
+      up = await apiFetch('/snapshots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: Uint8Array.from(atob(item.snapshot_bytes), (c) => c.charCodeAt(0)),
+      })
+    } catch {
+      return 'retry'
+    }
+    if (up.status === 429 || up.status >= 500) return 'retry'
+    if (!up.ok) {
+      drop(item.id)
+      return 'drop'
+    }
+    const key = (await up.json().catch(() => ({}))) as { key?: unknown }
+    if (typeof key.key !== 'string') {
+      drop(item.id)
+      return 'drop'
+    }
+    write(
+      read().map((x) =>
+        x.id === item.id ? { ...x, snapshot_key: key.key as string, snapshot_bytes: null } : x,
+      ),
+    )
+    item = read().find((x) => x.id === item.id) ?? item
+  }
   let res: Response
   try {
     res = await apiFetch(`/sites/${item.siteId}/gates/${item.gateId}/events`, {
