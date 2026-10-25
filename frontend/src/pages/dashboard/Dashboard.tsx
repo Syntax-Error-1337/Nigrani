@@ -39,10 +39,16 @@ export default function Dashboard() {
   const [gateId, setGateId] = useState<string | null>(null)
 
   function setTextSize(size: 'sm' | 'md' | 'lg') {
-    // GIGW pattern: user-controlled text scale on the root element.
+    // GIGW pattern: user-controlled text scale on the root element, persisted.
     const scale = size === 'sm' ? '87.5%' : size === 'lg' ? '112.5%' : '100%'
     document.documentElement.style.fontSize = scale
+    localStorage.setItem('sg-textsize', size)
   }
+  // Restore the persisted scale before first paint of the console.
+  useEffect(() => {
+    const saved = localStorage.getItem('sg-textsize') as 'sm' | 'md' | 'lg' | null
+    if (saved) setTextSize(saved)
+  }, [])
 
   const [dark, setDark] = useState(() =>
     localStorage.getItem('sg-theme')
