@@ -122,7 +122,7 @@ function detailLines(detail: unknown): [string, string][] {
             : 'bg-emerald-50 text-ok'
         }`}>{verdict}</p>
       ) : null}
-      <ol className="mt-3 card divide-y divide-slate-100">
+      <ol className="mt-3 card max-h-[36rem] overflow-y-auto divide-y divide-slate-100">
         {rows === null ? (
           <li className="p-2" aria-hidden="true">
             <span className="skeleton mb-2 h-9 w-full opacity-70" />
