@@ -104,6 +104,7 @@ export default function Login() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
+                autoFocus
               />
             </label>
             <div className="flex flex-col gap-1 text-sm">
@@ -142,7 +143,7 @@ export default function Login() {
             </button>
           </form>
           <div className="mt-6 rounded-xl border border-slate-200 bg-white p-3">
-            <p className="font-ledger text-[10px] uppercase tracking-wide text-slate-400">Demo callsigns · password: password</p>
+            <p className="font-ledger text-[10px] uppercase tracking-wide text-slate-500">Demo callsigns · password: password</p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {['superadmin', 'commander', 'gate', 'verifier', 'analyst'].map((c) => (
                 <button

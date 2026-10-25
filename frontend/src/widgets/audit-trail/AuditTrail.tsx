@@ -135,7 +135,7 @@ function detailLines(detail: unknown): [string, string][] {
           return (
             <li key={e.seq} className="px-4 py-2 font-ledger text-xs transition-colors hover:bg-slate-50/70">
               <div className="flex items-baseline gap-3">
-                <span className="text-slate-400">#{e.seq}</span>
+                <span className="text-slate-500">#{e.seq}</span>
                 <span className="uppercase">{e.action}</span>
                 <span className="text-slate-500">{e.entity}</span>
                 <span className="ml-auto">{new Date(e.at).toLocaleString()}</span>

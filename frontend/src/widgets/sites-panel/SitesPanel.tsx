@@ -181,7 +181,7 @@ export default function SitesPanel({
           </p>
         ) : null}
         {sites.length === 0 && !sitesLoading ? (
-          <p className="mt-8 text-center text-sm text-slate-400">
+          <p className="mt-8 text-center text-sm text-slate-500">
             <MapPin className="mx-auto h-5 w-5" />
             <span className="mt-1 block">No protest sites yet{canWrite ? ' — add the first one below.' : '.'}</span>
           </p>

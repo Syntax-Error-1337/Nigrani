@@ -320,7 +320,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
           <ol className="mt-2 divide-y divide-slate-100">
             {(hits ?? []).map((h, rank) => (
               <li key={h.id} className="flex items-center gap-2 py-1.5 font-ledger text-xs transition-colors hover:bg-slate-50/70">
-                <span className="w-5 text-right text-slate-400">{rank + 1}</span>
+                <span className="w-5 text-right text-slate-500">{rank + 1}</span>
                 <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5">{h.distance.toFixed(4)}</span>
                 <span className="truncate">{h.application_id ?? h.entry_log_id ?? h.id}</span>
               </li>

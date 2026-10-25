@@ -165,7 +165,7 @@ export default function ReviewDesk() {
       ) : null}
       {queue.isError ? <p className="mt-3 text-deny">Queue would not load.</p> : null}
       {!queue.isLoading && rows.length === 0 ? (
-        <p className="mt-8 text-center text-sm text-slate-400">
+        <p className="mt-8 text-center text-sm text-slate-500">
           <Inbox className="mx-auto h-5 w-5" />
           <span className="mt-1 block">No {tab} applications.</span>
         </p>

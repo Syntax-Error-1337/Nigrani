@@ -38,7 +38,7 @@ export default function DutyPanel() {
         <p className="mt-2 text-deny">Duty roster would not load.</p>
       ) : null}
       {gates.length === 0 && !roster.isLoading && !roster.isError ? (
-        <p className="mt-8 text-center text-sm text-slate-400">
+        <p className="mt-8 text-center text-sm text-slate-500">
           <Inbox className="mx-auto h-5 w-5" />
           <span className="mt-1 block">No duty assigned yet — a commander assigns you to a gate.</span>
         </p>

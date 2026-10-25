@@ -507,7 +507,7 @@ export default function Kiosk({
                 <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase">{p.method === 'press_card' ? 'card' : 'manual'}</span>
                 {p.method === 'press_card' && p.press_card ? <span className="truncate font-semibold">{p.press_card.full_name}</span> : null}
                 <span className="tabular-nums text-slate-500">{new Date(p.queued_at).toLocaleTimeString()}</span>
-                <span className="text-slate-400">{t.try} {p.attempts}</span>
+                <span className="text-slate-500">{t.try} {p.attempts}</span>
               </li>
             ))}
           </ol>
@@ -526,7 +526,7 @@ export default function Kiosk({
         </p>
       ) : null}
       {gateId === null ? (
-        <p className="mt-8 text-center text-sm text-slate-400">
+        <p className="mt-8 text-center text-sm text-slate-500">
           <ScanLine className="mx-auto h-5 w-5" />
           <span className="mt-1 block">Pick a gate post above to start screening.</span>
         </p>
@@ -543,6 +543,12 @@ export default function Kiosk({
               rows={4}
               value={payload}
               onChange={(e) => setPayload(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  void verify()
+                }
+              }}
               placeholder='{"application_id": …}'
             />
           </label>
@@ -626,7 +632,7 @@ export default function Kiosk({
             </ol>
           ) : null}
           {(log.data ?? []).length === 0 && !log.isLoading ? (
-            <p className="mt-6 text-center text-sm text-slate-400">
+            <p className="mt-6 text-center text-sm text-slate-500">
               <ImageOff className="mx-auto h-5 w-5" />
               <span className="mt-1 block">No crossings recorded at this gate yet.</span>
             </p>
