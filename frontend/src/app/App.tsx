@@ -1,12 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
-import Dashboard from '@/pages/dashboard'
+import { lazy, Suspense, useEffect } from 'react'
 import { useEventStream } from '@/shared/lib'
-import Login from '@/pages/login'
-import PressApply from '@/pages/press-apply'
 import { refreshNow } from '@/shared/api'
 import { useSession } from '@/shared/session'
+
+// Route-level splitting: the public pages and the (heavy) console load on
+// demand instead of one bundle.
+const Dashboard = lazy(() => import('@/pages/dashboard'))
+const Login = lazy(() => import('@/pages/login'))
+const PressApply = lazy(() => import('@/pages/press-apply'))
 const queryClient = new QueryClient()
 // Network blips (API restart, laptop sleep): retry those a few times, and
 // refetch on window focus so a dropped API connection heals itself without
@@ -46,20 +49,22 @@ export default function App() {
         <a href="#main-content" className="skip-link">
           Skip to main content
         </a>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/press" element={<PressApply />} />
-          <Route
-            path="/dashboard"
-            element={
-              <RequireAuth>
-                <LiveUpdates />
-                <Dashboard />
-              </RequireAuth>
-            }
-          />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/press" element={<PressApply />} />
+            <Route
+              path="/dashboard"
+              element={
+                <RequireAuth>
+                  <LiveUpdates />
+                  <Dashboard />
+                </RequireAuth>
+              }
+            />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
     </QueryClientProvider>
   )
