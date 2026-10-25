@@ -54,13 +54,17 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
     setReport('Daily CSV downloaded')
   }
   async function load() {
-    setNotice(null)
-    const res = await apiFetch('/admin/retention/policies')
-    if (!res.ok) {
-      setNotice(`Policies refused (${res.status})`)
-      return
-    }
-    setPolicies((await res.json()) as Policy[])
+  try {
+      setNotice(null)
+      const res = await apiFetch('/admin/retention/policies')
+      if (!res.ok) {
+        setNotice(`Policies refused (${res.status})`)
+        return
+      }
+      setPolicies((await res.json()) as Policy[])
+  } catch {
+    setNotice('Network error — is the API running?')
+  }
   }
 
   async function save(entity: string, retain_days: number) {

@@ -61,13 +61,17 @@ export default function OperatorsPanel() {
   const [notice, setNotice] = useState<string | null>(null)
 
   async function load() {
-    setNotice(null)
-    const res = await apiFetch('/users')
-    if (!res.ok) {
-      setNotice(apiError(await res.json().catch(() => ({})), 'Operators would not load'))
-      return
-    }
-    setRows((await res.json()) as Operator[])
+  try {
+      setNotice(null)
+      const res = await apiFetch('/users')
+      if (!res.ok) {
+        setNotice(apiError(await res.json().catch(() => ({})), 'Operators would not load'))
+        return
+      }
+      setRows((await res.json()) as Operator[])
+  } catch {
+    setNotice('Network error — is the API running?')
+  }
   }
 
   async function create(e: React.FormEvent) {

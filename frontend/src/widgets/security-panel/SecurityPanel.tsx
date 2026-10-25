@@ -31,16 +31,20 @@ export default function SecurityPanel() {
   const [ok, setOk] = useState<string | null>(null)
 
   async function loadSessions() {
-    setNotice(null)
-    const res = await apiFetch('/auth/sessions')
-    if (!res.ok) {
-      setNotice(`Sessions refused (${res.status})`)
-      return
-    }
-    const body: unknown = await res.json()
-    if (body !== null && typeof body === 'object' && 'sessions' in body) {
-      setSessions(body.sessions as SessionRow[])
-    }
+  try {
+      setNotice(null)
+      const res = await apiFetch('/auth/sessions')
+      if (!res.ok) {
+        setNotice(`Sessions refused (${res.status})`)
+        return
+      }
+      const body: unknown = await res.json()
+      if (body !== null && typeof body === 'object' && 'sessions' in body) {
+        setSessions(body.sessions as SessionRow[])
+      }
+  } catch {
+    setNotice('Network error — is the API running?')
+  }
   }
 
   // Sessions load on open — no blank panel waiting on a button.

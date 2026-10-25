@@ -33,14 +33,18 @@ function detailLines(detail: unknown): [string, string][] {
   const [notice, setNotice] = useState<string | null>(null)
 
   async function load() {
-    setNotice(null)
-    const path = siteId ? `/sites/${siteId}/audit?limit=30` : '/audit?limit=30'
-    const res = await apiFetch(path)
-    if (!res.ok) {
-      setNotice(`Trail would not load (${res.status})`)
-      return
-    }
-    setRows((await res.json()) as AuditEntry[])
+  try {
+      setNotice(null)
+      const path = siteId ? `/sites/${siteId}/audit?limit=30` : '/audit?limit=30'
+      const res = await apiFetch(path)
+      if (!res.ok) {
+        setNotice(`Trail would not load (${res.status})`)
+        return
+      }
+      setRows((await res.json()) as AuditEntry[])
+  } catch {
+    setNotice('Network error — is the API running?')
+  }
   }
 
   async function verify() {
