@@ -76,6 +76,15 @@ const KIOSK_STRINGS = {
     recent: 'Recent crossings',
     loading: 'Loading log…',
     empty: 'No crossings recorded at this gate yet.',
+    pickPost: 'Pick a gate post above to start screening.',
+    noPost: 'no gate post selected',
+    chooseFile: 'Choose file or drop',
+    captureUnavailable: 'Capture unavailable',
+    needSiteGate: 'Select a site and gate first',
+    needCard: 'Verify a press card first',
+    couldNotRecord: 'Could not record entry',
+    manualLogged: 'Manual entry logged',
+    loggedCard: (name: string) => `Entry logged — ${name}`,
     queued: 'Queued crossings',
     try: 'try',
     denyRevoked: 'Card revoked — redirect holder to the press desk',
@@ -115,6 +124,15 @@ const KIOSK_STRINGS = {
     recent: 'हाल के क्रॉसिंग',
     loading: 'लॉग लोड हो रहा है…',
     empty: 'इस गेट पर अभी कोई क्रॉसिंग दर्ज नहीं है।',
+    pickPost: 'ऊपर से गेट पोस्ट चुनकर सत्यापन शुरू करें।',
+    noPost: 'कोई गेट पोस्ट चयनित नहीं',
+    chooseFile: 'फ़ाइल चुनें',
+    captureUnavailable: 'कैप्चर अनुपलब्ध',
+    needSiteGate: 'पहले साइट और गेट चुनें',
+    needCard: 'पहले प्रेस कार्ड सत्यापित करें',
+    couldNotRecord: 'प्रवेश दर्ज नहीं हो सका',
+    manualLogged: 'मैनुअल प्रवेश दर्ज',
+    loggedCard: (name: string) => `प्रवेश दर्ज — ${name}`,
     queued: 'कतार में क्रॉसिंग',
     try: 'प्रयास',
     denyRevoked: 'कार्ड निरस्त — धारक को प्रेस डेस्क भेजें',
@@ -376,7 +394,7 @@ export default function Kiosk({
     setNotice(null)
     const res = await apiFetch(`/snapshots/${key}/share`)
     if (!res.ok) {
-      setNotice('Capture unavailable')
+      setNotice(t.captureUnavailable)
       return
     }
     const body: unknown = await res.json().catch(() => ({}))
@@ -389,11 +407,11 @@ export default function Kiosk({
     setNotice(null)
     setOk(null)
     if (siteId === null || gateId === null) {
-      setNotice('Select a site and gate first')
+      setNotice(t.needSiteGate)
       return
     }
     if (method === 'press_card' && !card) {
-      setNotice('Verify a press card first')
+      setNotice(t.needCard)
       return
     }
     const payload = {
@@ -433,10 +451,10 @@ export default function Kiosk({
           ? body.error
           : ''
       const key = recordDenialKey(raw)
-      setNotice(key ? t[key] : apiError(body, 'Could not record entry'))
+      setNotice(key ? t[key] : apiError(body, t.couldNotRecord))
       return
     }
-    setOk(method === 'manual' ? 'Manual entry logged' : `Entry logged — ${card?.full_name}`)
+    setOk(method === 'manual' ? t.manualLogged : t.loggedCard(card?.full_name ?? ''))
     setCard(null)
     setPayload('')
     setSnapshotKey('')
@@ -470,7 +488,7 @@ export default function Kiosk({
           </label>
         ) : null}
         {gateId === null ? (
-          <span className="pill pill-warn">no gate post selected</span>
+          <span className="pill pill-warn">{t.noPost}</span>
         ) : null}
         {offline ? (
           <span className="pill pill-archived">
@@ -546,7 +564,7 @@ export default function Kiosk({
       {gateId === null ? (
         <p className="mt-8 text-center text-sm text-slate-500">
           <ScanLine className="mx-auto h-5 w-5" />
-          <span className="mt-1 block">Pick a gate post above to start screening.</span>
+          <span className="mt-1 block">{t.pickPost}</span>
         </p>
       ) : (
       <div className="mt-3 grid gap-4 md:grid-cols-2">
@@ -596,7 +614,7 @@ export default function Kiosk({
               className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-3 py-2.5 text-sm text-slate-500 transition-colors hover:border-signal hover:bg-blue-50/50 hover:text-signal ${uploading ? 'pointer-events-none opacity-60' : ''}`}
             >
               {uploading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-              {uploading ? t.waiting : 'Choose file or drop'}
+              {uploading ? t.waiting : t.chooseFile}
               <input
                 type="file"
                 accept="image/jpeg"
