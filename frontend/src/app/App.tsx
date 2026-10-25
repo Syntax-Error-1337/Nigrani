@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { useEventStream } from '@/shared/lib'
 import { refreshNow } from '@/shared/api'
 import { useSession } from '@/shared/session'
+import ErrorBoundary from '@/app/ErrorBoundary'
 
 // Route-level splitting: the public pages and the (heavy) console load on
 // demand instead of one bundle.
@@ -45,6 +46,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ErrorBoundary>
       <BrowserRouter>
         <a href="#main-content" className="skip-link">
           Skip to main content
@@ -66,6 +68,7 @@ export default function App() {
           </Routes>
         </Suspense>
       </BrowserRouter>
+      </ErrorBoundary>
     </QueryClientProvider>
   )
 }
