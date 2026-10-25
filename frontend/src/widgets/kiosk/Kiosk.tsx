@@ -709,7 +709,7 @@ export default function Kiosk({
               <span className="mt-1 block">{t.empty}</span>
             </p>
           ) : null}
-          <ol className="mt-2 divide-y divide-slate-100">
+          <ol className="mt-2 max-h-96 overflow-y-auto divide-y divide-slate-100">
             {(log.data ?? []).map((e) => (
               <li key={e.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 font-ledger text-xs transition-colors hover:bg-slate-50/70">
                 <span className="flex w-20 shrink-0 items-center gap-1 uppercase">

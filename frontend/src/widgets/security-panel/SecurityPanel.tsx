@@ -198,7 +198,7 @@ export default function SecurityPanel() {
         </ol>
       ) : null}
       {sessions ? (
-        <ol className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-sm">
+        <ol className="mt-3 max-h-96 overflow-y-auto divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white shadow-sm">
           {sessions.map((s) => (
             <li key={s.session_id} className="flex items-center gap-3 px-4 py-2 text-xs">
               <span className="font-ledger">

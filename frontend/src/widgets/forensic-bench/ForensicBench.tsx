@@ -360,7 +360,7 @@ export default function ForensicBench({ siteId }: { siteId: string | null }) {
           {(incidents ?? []).length === 0 ? (
             <p className="mt-3 text-sm text-slate-500">No incidents match this view.</p>
           ) : null}
-          <ol className="mt-2 space-y-2">
+          <ol className="mt-2 max-h-[32rem] space-y-2 overflow-y-auto pr-1">
             {(incidents ?? []).map((i) => (
               <li key={i.id} className="card card-hover p-3 text-sm">
                 <div className="flex flex-wrap items-baseline gap-2">
