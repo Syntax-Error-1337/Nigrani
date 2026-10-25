@@ -107,9 +107,11 @@ function bump(id: string) {
   write(read().map((x) => (x.id === id ? { ...x, attempts: x.attempts + 1 } : x)))
 }
 
-/// Post one item. Returns 'sent' | 'retry' (network/5xx/429) | 'drop'
-/// (4xx verdict — caller surfaces the reason; 410 = gate retired).
-async function postItem(item: OutboxItem): Promise<'sent' | 'retry' | 'drop'> {
+/// Post one item. Returns 'sent' | 'auth' (session dead — KEEP the item for
+/// the next login; dropping would destroy evidence a later session could
+/// still flush) | 'retry' (network/5xx/429) | 'drop' (4xx verdict — caller
+/// surfaces the reason; 410 = gate retired).
+async function postItem(item: OutboxItem): Promise<'sent' | 'auth' | 'retry' | 'drop'> {
   // A photo staged offline uploads first; the key replaces the bytes so a
   // retry never re-uploads.
   if (item.snapshot_key === null && item.snapshot_bytes) {
@@ -123,6 +125,7 @@ async function postItem(item: OutboxItem): Promise<'sent' | 'retry' | 'drop'> {
     } catch {
       return 'retry'
     }
+    if (up.status === 401 || up.status === 403) return 'auth'
     if (up.status === 429 || up.status >= 500) return 'retry'
     if (!up.ok) {
       drop(item.id)
@@ -155,6 +158,7 @@ async function postItem(item: OutboxItem): Promise<'sent' | 'retry' | 'drop'> {
     return 'retry'
   }
   if (res.ok) return 'sent'
+  if (res.status === 401 || res.status === 403) return 'auth'
   if (res.status === 410) return 'drop'
   if (res.status === 429 || res.status >= 500) return 'retry'
   return 'drop'
@@ -177,6 +181,11 @@ export async function flushOutbox(): Promise<{ sent: number; dropped: number; pe
       if (outcome === 'sent') {
         drop(head.id)
         sent += 1
+      } else if (outcome === 'auth') {
+        // Session dead: the item stays queued (localStorage persists) — the
+        // next login's flush picks it up. Stop here; retrying is pointless.
+        bump(head.id)
+        break
       } else if (outcome === 'drop') {
         drop(head.id)
         dropped += 1
