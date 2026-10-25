@@ -180,7 +180,7 @@ export default function Dashboard() {
             <div className="hidden items-center gap-3 md:flex">
               <h1 className="text-sm font-medium text-white/90">{current.label}</h1>
               <div className="h-4 w-px bg-white/10" />
-              <p className="hidden max-w-md truncate text-xs text-white/60 lg:inline lg:max-w-md">{current.brief}</p>
+              <p className="hidden max-w-md truncate text-xs text-white/60 xl:inline">{current.brief}</p>
             </div>
             <div className="flex items-center gap-3">
               {sites.length > 0 ? SitePicker : null}
