@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Activity, BadgeCheck, ClipboardList, Gauge, KeyRound, LayoutDashboard,
   LogOut, Radar, Recycle, ScanLine, ShieldCheck, Network, Users,
@@ -53,6 +53,16 @@ export default function Dashboard() {
   // the `if (!user)` return.
   const sites = sitesQuery.data ?? []
   const activeSiteId = siteId ?? sites[0]?.id ?? null
+
+  // A selected gate belongs to exactly one site; switching sites would leave
+  // a mismatched (site, gate) pair posting crossings to the wrong post.
+  const prevSiteRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (prevSiteRef.current !== null && prevSiteRef.current !== activeSiteId) {
+      setGateId(null)
+    }
+    prevSiteRef.current = activeSiteId
+  }, [activeSiteId])
 
   if (!user) return null
   const canWrite = user.role === 'SuperAdmin' || user.role === 'SiteCommander'
