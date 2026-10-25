@@ -106,10 +106,11 @@ export default function Login() {
                 autoComplete="username"
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm">
-              Password
+            <div className="flex flex-col gap-1 text-sm">
+              <label htmlFor="login-password">Password</label>
               <span className="relative">
                 <input
+                  id="login-password"
                   type={showPw ? 'text' : 'password'}
                   className="input pr-10"
                   value={password}
@@ -119,13 +120,13 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPw((v) => !v)}
-                  aria-label={showPw ? 'Hide password' : 'Show password'}
+                  aria-label={showPw ? 'Hide password text' : 'Show password text'}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
                 >
                   {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </span>
-            </label>
+            </div>
             {error ? (
               <p role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-deny">
                 <XCircle className="mt-0.5 h-4 w-4 shrink-0" />

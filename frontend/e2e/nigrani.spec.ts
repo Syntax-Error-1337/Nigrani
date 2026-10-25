@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test'
 async function login(page, username: string) {
   await page.goto('/')
   await page.getByLabel('Username').fill(username)
-  await page.getByLabel('Password').fill('password')
+  await page.getByLabel('Password', { exact: true }).fill('password')
   await page.getByRole('button', { name: /sign in|log in/i }).click()
   await expect(page.getByText(/Nigrani/i).first()).toBeVisible()
 }
