@@ -30,7 +30,7 @@ function denialKey(reason: unknown): DenialKey | null {
 
 /// Record-time refusal mirrors the same copy.
 function recordDenialKey(serverMessage: string): DenialKey | null {
-  if (serverMessage.includes('at capacity')) return null // handled inline (untranslated)
+  if (serverMessage.includes('at capacity')) return null // inline locale copy below
   if (serverMessage.includes('press card revoked')) return 'denyRevoked'
   if (serverMessage.includes('not approved')) return 'denyPending'
   if (serverMessage.includes('press card expired')) return 'denyExpired'
@@ -83,6 +83,7 @@ const KIOSK_STRINGS = {
     needSiteGate: 'Select a site and gate first',
     needCard: 'Verify a press card first',
     couldNotRecord: 'Could not record entry',
+    capacityFull: (occ: string, cap: string) => `Site at capacity (${occ}/${cap}) — entry refused, redirect to the marshals`,
     manualLogged: 'Manual entry logged',
     loggedCard: (name: string) => `Entry logged — ${name}`,
     queued: 'Queued crossings',
@@ -131,6 +132,7 @@ const KIOSK_STRINGS = {
     needSiteGate: 'पहले साइट और गेट चुनें',
     needCard: 'पहले प्रेस कार्ड सत्यापित करें',
     couldNotRecord: 'प्रवेश दर्ज नहीं हो सका',
+    capacityFull: (occ: string, cap: string) => `साइट क्षमता पूर्ण (${occ}/${cap}) — प्रवेश निषेध, मार्शल से संपर्क करें`,
     manualLogged: 'मैनुअल प्रवेश दर्ज',
     loggedCard: (name: string) => `प्रवेश दर्ज — ${name}`,
     queued: 'कतार में क्रॉसिंग',
@@ -450,6 +452,11 @@ export default function Kiosk({
         body !== null && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
           ? body.error
           : ''
+      const capMatch = /at capacity \((\d+)\/(\d+)\)/.exec(raw)
+      if (capMatch) {
+        setNotice(t.capacityFull(capMatch[1], capMatch[2]))
+        return
+      }
       const key = recordDenialKey(raw)
       setNotice(key ? t[key] : apiError(body, t.couldNotRecord))
       return
