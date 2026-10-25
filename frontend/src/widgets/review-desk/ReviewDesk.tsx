@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Ban, Check, Download, IdCard, Inbox, RefreshCcw, X, XCircle } from 'lucide-react'
 import { useDebounced } from '@/shared/lib'
 import { useKycQueue, type KycApplication, type PressCard } from '@/entities/kyc'
@@ -121,6 +121,14 @@ export default function ReviewDesk() {
     const blob = await img.blob()
     setCard({ name: app.full_name, payload, qrUrl: URL.createObjectURL(blob), serial: parsed.serial ?? null, expires: parsed.expires_at ?? null })
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPhoto(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const rows = queue.data ?? []
 

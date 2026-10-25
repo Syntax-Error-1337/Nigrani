@@ -187,6 +187,13 @@ export default function Kiosk({
   useEffect(() => {
     if (gateId !== null) payloadRef.current?.focus()
   }, [gateId])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreview(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const pending = useOutbox()
   const [flushing, setFlushing] = useState(false)
   const crl = useRef<CachedCrl | null>(null)
