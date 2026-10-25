@@ -18,7 +18,7 @@ export function useGateLog(siteId: string | null, gateId: string | null) {
   return useQuery({
     queryKey: ['gate-log', siteId, gateId],
     queryFn: async (): Promise<EntryLog[]> => {
-      const res = await apiFetch(`/sites/${siteId}/gates/${gateId}/log?limit=20`)
+      const res = await apiFetch(`/sites/${siteId}/gates/${gateId}/log?limit=50`)
       if (!res.ok) throw new Error(`log failed: ${res.status}`)
       return res.json() as Promise<EntryLog[]>
     },
