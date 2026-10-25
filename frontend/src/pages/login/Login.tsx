@@ -22,7 +22,14 @@ export default function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       })
-      const body: unknown = await res.json().catch(() => ({}))
+      // Rate-limit middleware answers text/plain, not JSON.
+      const raw = await res.text()
+      let body: unknown = {}
+      try {
+        body = JSON.parse(raw)
+      } catch {
+        if (raw) body = { error: raw }
+      }
       if (!res.ok) {
         const err =
           body !== null && typeof body === 'object' && 'error' in body ? body.error : null

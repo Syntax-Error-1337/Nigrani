@@ -23,7 +23,15 @@ export default function PressApply() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
-      const body: unknown = await res.json().catch(() => ({}))
+      // Rate-limit middleware answers text/plain, not JSON — read the body
+      // as text first so the limiter's message survives.
+      const raw = await res.text()
+      let body: unknown = {}
+      try {
+        body = JSON.parse(raw)
+      } catch {
+        if (raw) body = { error: raw }
+      }
       if (!res.ok) {
         const err =
           body !== null && typeof body === 'object' && 'error' in body ? body.error : null
