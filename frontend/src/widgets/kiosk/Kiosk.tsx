@@ -596,7 +596,18 @@ export default function Kiosk({
               value={payload}
               onChange={(e) => setPayload(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                if (e.key !== 'Enter') return
+                // Hardware QR scanners append a plain Enter after the scan;
+                // auto-verify when the typed payload is complete JSON.
+                // Incomplete (human-typed) JSON keeps newline editing.
+                let complete = false
+                try {
+                  JSON.parse(e.currentTarget.value)
+                  complete = true
+                } catch {
+                  // still editing
+                }
+                if (complete || e.metaKey || e.ctrlKey) {
                   e.preventDefault()
                   void verify()
                 }
