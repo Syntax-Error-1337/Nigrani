@@ -525,6 +525,16 @@ export default function Kiosk({
           {ok}
         </p>
       ) : null}
+      {card && ok ? (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2 font-ledger text-xs text-ink">
+          <span className="font-semibold">{card.full_name}</span>
+          {card.organization ? <span className="text-slate-500">{card.organization}</span> : null}
+          {card.serial ? <span>serial {card.serial}</span> : null}
+          {card.expires_at ? (
+            <span className="text-slate-500">valid until {new Date(card.expires_at).toLocaleDateString()}</span>
+          ) : null}
+        </div>
+      ) : null}
       {gateId === null ? (
         <p className="mt-8 text-center text-sm text-slate-500">
           <ScanLine className="mx-auto h-5 w-5" />
