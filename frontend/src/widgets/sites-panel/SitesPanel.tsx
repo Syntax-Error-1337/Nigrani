@@ -195,7 +195,7 @@ export default function SitesPanel({
                   <th className="hidden w-[22%] px-4 py-2.5 font-medium sm:table-cell">Location</th>
                   <th className="hidden w-[12%] px-4 py-2.5 font-medium md:table-cell">Created</th>
                   <th className="w-[12%] px-4 py-2.5 font-medium">Status</th>
-                  <th className="w-[14%] px-4 py-2.5" />
+                  <th className="w-[14%] px-4 py-2.5"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -313,7 +313,7 @@ export default function SitesPanel({
                   <th className="w-[16%] px-4 py-2.5 font-medium">Duty officer</th>
                   <th className="hidden w-[12%] px-4 py-2.5 font-medium sm:table-cell">Created</th>
                   <th className="w-[12%] px-4 py-2.5 font-medium">Status</th>
-                  <th className="w-[14%] px-4 py-2.5" />
+                  <th className="w-[14%] px-4 py-2.5"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -341,6 +341,7 @@ export default function SitesPanel({
                     >
                       {canWrite ? (
                         <select
+                          aria-label={`Duty officer at ${gate.name}`}
                           className="input w-full max-w-40 !px-1 !py-0.5 !text-xs"
                           value={gate.duty_officer ?? ''}
                           onChange={(e) => void assignDuty(gate, e.target.value || null)}

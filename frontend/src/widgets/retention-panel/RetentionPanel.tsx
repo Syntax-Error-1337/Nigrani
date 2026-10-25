@@ -194,7 +194,7 @@ export default function RetentionPanel({ siteId }: { siteId: string | null }) {
             <tr className="text-left uppercase">
               <th className="px-3 py-1">Entity</th>
               <th className="px-3 py-1">Keep (days, 0 = forever)</th>
-              <th className="px-3 py-1"></th>
+              <th className="px-3 py-1"><span className="sr-only">Save</span></th>
             </tr>
           </thead>
           <tbody>
@@ -248,6 +248,7 @@ function PolicyRow({
       <td className="px-3 py-1">
         <input
           type="number"
+          aria-label={`Retention days for ${policy.entity}`}
           min={0}
           max={3650}
           className="input w-24"
